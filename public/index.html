@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HORIZON RUSH — LAN Racing</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏁</text></svg>">
+<link rel="stylesheet" href="/css/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "/vendor/three/build/three.module.js",
+    "three/addons/": "/vendor/three/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- ============================== RACE HUD ============================== -->
+<div id="hud" class="hidden">
+  <div class="hud-topleft">
+    <div class="progress-wrap">
+      <div class="progress-label"><span id="progressPct">0%</span> <span class="dim">Progress</span></div>
+      <div class="progress-bar"><div id="progressFill"></div></div>
+    </div>
+    <div class="time-row"><span class="dim">Time</span> <span id="raceTime" class="mono">00:00.000</span></div>
+    <div class="time-row"><span class="dim">Lap</span> <span id="lapNum" class="mono">1/3</span></div>
+  </div>
+
+  <div class="hud-topright">
+    <span class="dim">Position</span> <span id="posNum">12</span><span class="pos-total" id="posTotal">/12</span>
+  </div>
+
+  <div id="checkpoint" class="checkpoint">
+    <div class="cp-dist" id="cpDist">120 YD</div>
+    <div class="cp-line"></div>
+    <div class="cp-label">Checkpoint</div>
+  </div>
+
+  <div id="chain" class="chain hidden">
+    <span id="chainPts">0</span><span id="chainMult" class="chain-mult">×1.0</span>
+  </div>
+  <div id="skillFeed"></div>
+
+  <div class="hud-bottomleft">
+    <canvas id="minimap" width="360" height="360"></canvas>
+    <div class="player-chip"><span class="chip-ico">🏳</span> <span id="chipName">YOU</span> <span class="chip-link" id="chipLink">LAN ●</span></div>
+  </div>
+
+  <div class="hud-speedo">
+    <svg id="gauge" viewBox="0 0 200 200" width="230" height="230"></svg>
+    <div class="speedo-readout">
+      <div class="gear" id="gearNum">1</div>
+      <div class="speed-num" id="speedNum">0</div>
+      <div class="speed-unit">MPH</div>
+    </div>
+  </div>
+
+  <div id="banner" class="banner hidden"></div>
+  <div id="plates"></div>
+</div>
+
+<!-- ============================== COUNTDOWN ============================= -->
+<div id="countdown" class="countdown hidden"><span id="countNum">3</span></div>
+
+<!-- ============================== LOBBY ================================= -->
+<div id="lobby">
+  <div class="lobby-card">
+    <div class="logo"><span class="logo-h">HORIZON</span><span class="logo-r">RUSH</span></div>
+    <div class="tagline">LAN FESTIVAL RACING · COASTAL CIRCUIT</div>
+
+    <div class="lobby-row">
+      <label for="nameInput">DRIVER NAME</label>
+      <input id="nameInput" maxlength="14" placeholder="Your name" autocomplete="off">
+    </div>
+
+    <div class="lobby-row">
+      <label>PAINT</label>
+      <div id="swatches" class="swatches"></div>
+      <div class="paint-hint">Your car is on the track behind this panel — it repaints as you pick.</div>
+    </div>
+
+    <div class="lobby-row">
+      <label>RACE AGAINST</label>
+      <div id="modeSeg" class="seg">
+        <button type="button" class="seg-btn" data-mode="bot">
+          <span class="seg-title">🤖 BOTS</span>
+          <span class="seg-sub">Full grid of drivatars · starts the moment you're ready</span>
+        </button>
+        <button type="button" class="seg-btn" data-mode="friends">
+          <span class="seg-title">👥 FRIENDS</span>
+          <span class="seg-sub">Only the drivers connected to your LAN · no AI</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="lobby-row">
+      <label for="quality">GRAPHICS</label>
+      <select id="quality">
+        <option value="high">High — smooth (recommended)</option>
+        <option value="med">Medium</option>
+        <option value="low">Low</option>
+      </select>
+    </div>
+
+    <button id="readyBtn" class="ready-btn">READY — START ENGINE</button>
+    <button id="startNowBtn" class="ready-btn ghost-btn hidden">START NOW WITHOUT THEM</button>
+    <div id="lobbyStatus" class="lobby-status">Connecting…</div>
+
+    <div class="lobby-players">
+      <div class="lp-title">DRIVERS IN LOBBY</div>
+      <div id="lobbyList"></div>
+    </div>
+
+    <div class="lan-box">
+      <div class="lp-title">FRIEND JOINS AT</div>
+      <div id="lanUrl" class="lan-url">…</div>
+    </div>
+
+    <div class="controls-hint">
+      W/S or ↑/↓ throttle &amp; brake · A/D or ←/→ steer · SPACE handbrake<br>
+      C camera (chase / driver / hood) · H horn · L lights · R reset · M mute<br>
+      Gamepad supported
+    </div>
+  </div>
+</div>
+
+<!-- ============================== RESULTS =============================== -->
+<div id="results" class="results hidden">
+  <div class="results-card">
+    <div class="results-title">RACE RESULTS</div>
+    <table id="resultsTable"></table>
+    <button id="againBtn" class="ready-btn">RACE AGAIN</button>
+    <button id="backBtn" class="ready-btn ghost-btn">BACK TO LOBBY</button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

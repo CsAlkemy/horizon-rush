@@ -1,0 +1,310 @@
+/* HORIZON RUSH — HUD + menus. Forza Horizon-inspired: clean white italic type,
+   magenta accent, cyan progress, yellow skill text. DOM HUD stays crisp at any
+   resolution. */
+:root {
+  --accent: #ff2d78;
+  --cyan: #35e0e6;
+  --yellow: #ffd23d;
+  --hud-shadow: 0 1px 3px rgba(0, 0, 0, .8), 0 0 12px rgba(0, 0, 0, .35);
+  --font: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e14; }
+body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
+
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+.hidden { display: none !important; }
+.dim { opacity: .78; font-weight: 600; }
+.mono { font-variant-numeric: tabular-nums; }
+
+/* ============================== HUD ============================== */
+#hud { position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 10; }
+
+.hud-topleft {
+  position: absolute; top: 22px; left: 26px; width: 240px;
+  text-shadow: var(--hud-shadow);
+}
+.progress-label {
+  font-size: 15px; font-weight: 700; letter-spacing: .04em;
+}
+.progress-label #progressPct { font-size: 26px; font-weight: 800; font-style: italic; }
+.progress-bar {
+  margin-top: 4px; height: 5px; width: 200px;
+  background: rgba(255, 255, 255, .25); border-radius: 3px; overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+#progressFill { height: 100%; width: 0%; background: var(--cyan); border-radius: 3px; }
+.time-row { margin-top: 7px; font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+.time-row .mono { font-size: 17px; font-weight: 800; font-style: italic; margin-left: 6px; }
+
+.hud-topright {
+  position: absolute; top: 18px; right: 30px; text-align: right;
+  text-shadow: var(--hud-shadow);
+  font-size: 20px; font-weight: 700; letter-spacing: .04em;
+}
+.hud-topright #posNum { font-size: 46px; font-weight: 800; font-style: italic; margin-left: 8px; }
+.hud-topright .pos-total { font-size: 26px; font-weight: 800; font-style: italic; opacity: .85; }
+
+/* Checkpoint marker — horizontally tracks the gate on screen */
+.checkpoint {
+  position: absolute; top: 9%; left: 50%; transform: translateX(-50%);
+  text-align: center; text-shadow: var(--hud-shadow); transition: opacity .3s;
+}
+.cp-dist { font-size: 22px; font-weight: 800; font-style: italic; color: #ffe9a8; }
+.cp-line { width: 2px; height: 34px; background: rgba(255,255,255,.85); margin: 4px auto; }
+.cp-label { font-size: 13px; font-weight: 700; letter-spacing: .06em; opacity: .9; }
+
+/* Skill chain */
+.chain {
+  position: absolute; top: 17%; left: 50%; transform: translateX(-50%);
+  color: var(--yellow); text-shadow: var(--hud-shadow); text-align: center;
+  font-size: 30px; font-weight: 800; font-style: italic;
+}
+.chain-mult { font-size: 20px; margin-left: 6px; opacity: .95; }
+#skillFeed {
+  position: absolute; top: 40%; left: 33%; width: 300px; text-align: center;
+}
+.skill-pop {
+  color: #fff; text-shadow: var(--hud-shadow);
+  font-size: 19px; font-weight: 800; font-style: italic; letter-spacing: .02em;
+  animation: pop 1.6s ease-out forwards;
+}
+.skill-pop .pts { color: var(--yellow); margin-left: 8px; }
+.skill-pop.big { font-size: 24px; color: var(--yellow); }
+.skill-pop.bad { color: #ff5d5d; }
+@keyframes pop {
+  0% { opacity: 0; transform: translateY(14px) scale(.85); }
+  12% { opacity: 1; transform: translateY(0) scale(1.06); }
+  22% { transform: scale(1); }
+  78% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-16px); }
+}
+
+/* Minimap */
+.hud-bottomleft { position: absolute; left: 26px; bottom: 24px; }
+#minimap {
+  width: 180px; height: 180px; border-radius: 50%;
+  background: rgba(10, 14, 20, .55);
+  box-shadow: 0 0 0 3px rgba(255,255,255,.75), 0 4px 18px rgba(0,0,0,.5);
+}
+.player-chip {
+  margin-top: 10px; display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(12, 16, 24, .72); border-radius: 4px; padding: 5px 10px;
+  font-size: 13px; font-weight: 700; letter-spacing: .05em; color: #fff;
+}
+.chip-ico { opacity: .9; }
+.chip-link { color: var(--cyan); font-size: 11px; }
+
+/* Speedometer */
+.hud-speedo { position: absolute; right: 22px; bottom: 14px; width: 230px; height: 230px; }
+.speedo-readout { position: absolute; right: 16px; bottom: 30px; text-align: right; color: #fff; text-shadow: var(--hud-shadow); }
+.gear {
+  display: inline-block; font-size: 30px; font-weight: 800; font-style: italic;
+  color: var(--accent); margin-bottom: -6px;
+}
+.speed-num { font-size: 64px; font-weight: 800; font-style: italic; line-height: .95; letter-spacing: -.02em; }
+.speed-unit { font-size: 16px; font-weight: 700; letter-spacing: .14em; opacity: .85; }
+
+/* Nameplates over cars */
+#plates { position: absolute; inset: 0; overflow: hidden; }
+.plate {
+  position: absolute; transform: translate(-50%, -100%);
+  display: flex; align-items: stretch; white-space: nowrap;
+  font-size: 12px; font-weight: 700; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
+}
+.plate .pnum {
+  background: rgba(40, 44, 52, .92); color: #fff; padding: 3px 7px;
+  border-radius: 3px 0 0 3px; font-style: italic;
+}
+.plate .pname {
+  background: rgba(255, 255, 255, .94); color: #16181d; padding: 3px 9px;
+  border-radius: 0 3px 3px 0; letter-spacing: .02em;
+}
+.plate .pname.human { color: #a80b48; }
+.plate::after {
+  content: ""; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: rgba(255,255,255,.94); border-bottom: 0;
+}
+
+/* Center banners: FINAL LAP / FINISHED */
+.banner {
+  position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 54px; font-weight: 800; font-style: italic; letter-spacing: .06em;
+  color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.75), 0 0 40px rgba(255,45,120,.45);
+  animation: bannerIn .5s ease-out;
+}
+@keyframes bannerIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(1.4); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* ============================== COUNTDOWN ============================== */
+.countdown {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  pointer-events: none; z-index: 20;
+}
+.countdown span {
+  font-size: 160px; font-weight: 800; font-style: italic; color: #fff;
+  text-shadow: 0 4px 30px rgba(0,0,0,.6), 0 0 60px rgba(53,224,230,.5);
+  animation: countPulse 1s ease-out infinite;
+}
+@keyframes countPulse {
+  0% { transform: scale(1.35); opacity: 0; }
+  18% { transform: scale(1); opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ============================== LOBBY ==============================
+   The panel sits to one side and the scrim fades out across the screen, so the
+   live car on the track stays visible (and unblurred) while you paint it. */
+#lobby {
+  position: fixed; inset: 0; z-index: 30; display: flex; align-items: center;
+  justify-content: flex-start; padding-left: 4vw;
+  background: linear-gradient(100deg,
+    rgba(8, 12, 22, .95) 0%, rgba(8, 12, 22, .92) 32%,
+    rgba(9, 15, 28, .55) 52%, rgba(10, 20, 38, .12) 70%, rgba(10, 20, 38, 0) 84%);
+}
+.lobby-card {
+  width: min(460px, 92vw); max-height: 94vh; overflow-y: auto;
+  background: rgba(13, 18, 28, .92); border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px; padding: 26px 30px 20px; color: #e8ecf4;
+  box-shadow: 0 30px 80px rgba(0,0,0,.6);
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent;
+}
+/* A default scrollbar reads as a bright bar down the middle of the screen next
+   to the car, so it is toned down to match the card. */
+.lobby-card::-webkit-scrollbar { width: 8px; }
+.lobby-card::-webkit-scrollbar-track { background: transparent; }
+.lobby-card::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.18); border-radius: 4px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+.lobby-card::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.32); background-clip: content-box; }
+
+.logo { text-align: center; font-style: italic; font-weight: 800; letter-spacing: .02em; }
+.logo-h {
+  font-size: 44px; background: linear-gradient(92deg, #35e0e6, #3f8cff);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.logo-r { font-size: 44px; color: var(--accent); margin-left: 10px; }
+.tagline { text-align: center; font-size: 11px; letter-spacing: .3em; opacity: .6; margin: 4px 0 18px; }
+
+.lobby-row { margin-bottom: 13px; }
+.lobby-row label { display: block; font-size: 11px; letter-spacing: .18em; opacity: .65; margin-bottom: 6px; font-weight: 700; }
+.lobby-row input, .lobby-row select {
+  width: 100%; padding: 11px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06); color: #fff; font-size: 15px; font-family: var(--font);
+  outline: none;
+}
+.lobby-row input:focus, .lobby-row select:focus { border-color: var(--cyan); }
+.lobby-row select option { background: #141a26; }
+
+.swatches { display: flex; gap: 9px; flex-wrap: wrap; }
+.swatch {
+  width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+  border: 2px solid rgba(255,255,255,.25); transition: transform .12s;
+}
+.swatch:hover { transform: scale(1.12); }
+.swatch.sel { border-color: #fff; box-shadow: 0 0 0 3px var(--accent); }
+.paint-hint { margin-top: 9px; font-size: 11px; line-height: 1.45; opacity: .45; }
+
+/* Opponent picker */
+.seg { display: flex; gap: 8px; }
+.seg-btn {
+  flex: 1; display: flex; flex-direction: column; gap: 4px; text-align: left;
+  padding: 10px 12px; border-radius: 9px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05);
+  color: #cfd6e4; font-family: var(--font); transition: border-color .14s, background .14s;
+}
+.seg-btn:hover { background: rgba(255,255,255,.09); }
+.seg-btn .seg-title { font-size: 14px; font-weight: 800; letter-spacing: .04em; }
+.seg-btn .seg-sub { font-size: 10.5px; line-height: 1.35; opacity: .6; }
+.seg-btn.sel {
+  border-color: var(--cyan); background: rgba(53, 224, 230, .12); color: #fff;
+  box-shadow: 0 0 0 1px rgba(53,224,230,.45);
+}
+.seg-btn.sel .seg-sub { opacity: .8; }
+
+.ready-btn {
+  width: 100%; margin-top: 6px; padding: 14px; border: none; border-radius: 9px;
+  background: linear-gradient(92deg, var(--accent), #ff5d3a);
+  color: #fff; font-size: 17px; font-weight: 800; font-style: italic; letter-spacing: .06em;
+  cursor: pointer; font-family: var(--font); transition: filter .15s, transform .1s;
+}
+.ready-btn:hover { filter: brightness(1.12); }
+.ready-btn:active { transform: scale(.985); }
+.ready-btn.armed { background: linear-gradient(92deg, #1f9d55, #12b8a8); }
+.ready-btn:disabled { cursor: default; }
+.ghost-btn {
+  margin-top: 9px; padding: 11px; font-size: 13.5px; letter-spacing: .1em;
+  background: none; border: 1px solid rgba(255,255,255,.18); color: #b9c2d2;
+}
+.ghost-btn:hover { filter: none; background: rgba(255,255,255,.07); color: #fff; }
+.lobby-status { text-align: center; font-size: 12.5px; opacity: .75; margin-top: 10px; min-height: 16px; line-height: 1.5; }
+
+.lobby-players { margin-top: 14px; }
+.lp-title { font-size: 11px; letter-spacing: .18em; opacity: .55; font-weight: 700; margin-bottom: 7px; }
+#lobbyList { display: flex; flex-direction: column; gap: 5px; }
+.lp-row {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  background: rgba(255,255,255,.05); border-radius: 6px; font-size: 14px; font-weight: 600;
+}
+.lp-dot { width: 13px; height: 13px; border-radius: 50%; }
+.lp-mode { font-size: 10.5px; opacity: .5; letter-spacing: .08em; }
+.lp-ready { margin-left: auto; font-size: 11.5px; letter-spacing: .1em; color: #9aa3b2; font-weight: 700; }
+.lp-ready.ready { color: #35e68b; }
+.lp-ready.racing { color: var(--accent); }
+.lp-ready.results { color: var(--yellow); }
+#lobbyList:empty::after {
+  content: "No one else yet — BOTS races start without waiting.";
+  font-size: 12px; opacity: .45;
+}
+
+.lan-box { margin-top: 13px; padding: 11px 13px; background: rgba(53, 224, 230, .07); border: 1px dashed rgba(53,224,230,.4); border-radius: 8px; }
+.lan-url { font-size: 15px; font-weight: 700; color: var(--cyan); user-select: text; -webkit-user-select: text; }
+
+.controls-hint { margin-top: 14px; font-size: 11.5px; line-height: 1.6; opacity: .55; text-align: center; }
+
+/* Narrow / portrait: no room beside the panel, so it drops to the bottom and
+   the car shows in the strip above it instead. Must come after the lobby base
+   rules — these overrides are the same specificity, so order decides. */
+@media (max-width: 900px) {
+  #lobby {
+    align-items: flex-end; justify-content: center; padding: 0 0 1.5vh;
+    background: linear-gradient(184deg,
+      rgba(10, 20, 38, 0) 0%, rgba(9, 15, 28, .40) 18%, rgba(8, 12, 22, .93) 34%);
+  }
+  .lobby-card { max-height: 72vh; padding: 20px 22px 16px; }
+  /* 44px of italic display type overflows a phone-width card. */
+  .logo-h, .logo-r { font-size: 32px; }
+  .logo-r { margin-left: 6px; }
+  .tagline { letter-spacing: .14em; margin-bottom: 14px; }
+  .seg { flex-direction: column; }
+  .seg-btn { flex-direction: row; align-items: baseline; gap: 8px; }
+  .seg-btn .seg-sub { flex: 1; }
+}
+
+/* ============================== RESULTS ============================== */
+.results {
+  position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 9, 16, .68); backdrop-filter: blur(4px);
+}
+.results-card {
+  width: min(560px, 94vw); background: rgba(13, 18, 28, .95); border-radius: 14px;
+  padding: 28px 34px; color: #e8ecf4; border: 1px solid rgba(255,255,255,.08);
+}
+.results-title { font-size: 30px; font-weight: 800; font-style: italic; margin-bottom: 18px; }
+#resultsTable { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+#resultsTable td { padding: 8px 6px; font-size: 15px; border-bottom: 1px solid rgba(255,255,255,.07); }
+#resultsTable tr.me td { color: var(--yellow); font-weight: 700; }
+#resultsTable td.rpos { font-weight: 800; font-style: italic; width: 40px; font-size: 17px; }
+#resultsTable td.rtime { text-align: right; font-variant-numeric: tabular-nums; opacity: .9; }
+
+.toast {
+  position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 50;
+  background: rgba(20, 26, 38, .95); color: #fff; padding: 10px 18px; border-radius: 8px;
+  font-size: 14px; font-weight: 600; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+}

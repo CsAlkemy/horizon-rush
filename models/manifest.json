@@ -1,0 +1,21 @@
+{
+  "file": "car.glb",
+  "faces": "+z",
+  "lengthMeters": 4.58,
+  "paintMaterials": [
+    "material_1",
+    "EXT_Car_Paint"
+  ],
+  "wheelNodes": [
+    "WHEEL_LR",
+    "WHEEL_LF",
+    "WHEEL_RF",
+    "WHEEL_RR"
+  ],
+  "applyTo": "humans",
+  "driverEye": [
+    0.28,
+    0.95,
+    0.3
+  ]
+}

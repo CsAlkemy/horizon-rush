@@ -1,0 +1,17 @@
+{
+  "name": "horizon-rush",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "LAN arcade racer for the browser — Forza Horizon inspired",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "three": "^0.170.0",
+    "ws": "^8.18.0"
+  }
+}
