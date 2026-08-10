@@ -156,6 +156,46 @@ export function instantiateTemplate(template, colorHex) {
     return true;
   });
 
+  // Wheel rigs: wrap every wheel node in steer -> spin groups so the wheels
+  // visibly steer with input and roll with speed. Rotating the source nodes
+  // directly doesn't work in general — exporters nest the model under
+  // re-orientation nodes (Sketchfab adds a -90° X root), so a node's local X
+  // is not the axle. Instead the car-space axle (+X) and steering axis (+Y)
+  // are transformed into each wheel's own frame once, here, and animateCar
+  // sets plain axis-angle quaternions on the identity wrapper groups.
+  group.updateMatrixWorld(true);
+  const rigs = [];
+  const invM = new THREE.Matrix4();
+  for (const w of topWheels) {
+    const parent = w.parent;
+    const pivot = new THREE.Group();     // takes over the node's local TRS
+    const steer = new THREE.Group();     // identity; yawed by animateCar (front only)
+    const spin = new THREE.Group();      // identity; rolled by animateCar
+    pivot.position.copy(w.position);
+    pivot.quaternion.copy(w.quaternion);
+    pivot.scale.copy(w.scale);
+    w.position.set(0, 0, 0);
+    w.quaternion.identity();
+    w.scale.set(1, 1, 1);
+    parent.add(pivot);
+    pivot.add(steer);
+    steer.add(spin);
+    spin.add(w);
+
+    group.updateMatrixWorld(true);
+    invM.copy(pivot.matrixWorld).invert();
+    const axle = new THREE.Vector3(1, 0, 0).transformDirection(invM);
+    const up = new THREE.Vector3(0, 1, 0).transformDirection(invM);
+    const pos = new THREE.Vector3().setFromMatrixPosition(pivot.matrixWorld);
+    const box = new THREE.Box3().setFromObject(w);
+    const radius = Math.max(0.12, (box.max.y - box.min.y) / 2 || 0.34);
+    rigs.push({
+      spinObj: spin,
+      steerObj: pos.z > 0 ? steer : null,   // nose is +Z, so z > 0 = front axle
+      axle, up, radius,
+    });
+  }
+
   // No named paint material: tint the largest mesh so cars are still telling apart.
   if (!paintMats.length && biggest) {
     const m = Array.isArray(biggest.material) ? biggest.material[0] : biggest.material;
@@ -164,5 +204,5 @@ export function instantiateTemplate(template, colorHex) {
   }
   if (!paintMats.length) paintMats.push(new THREE.MeshStandardMaterial({ color: colorHex }));
 
-  return { group, wheels: topWheels, paint: paintMats[0], paintMats, headMats, tailMats };
+  return { group, rigs, paint: paintMats[0], paintMats, headMats, tailMats };
 }

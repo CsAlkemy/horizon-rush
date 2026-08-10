@@ -1,7 +1,9 @@
 // Audio: synthesized engine/wind/skid beds plus recorded car foley one-shots
-// from public/audio (see public/audio/README.md for the file mapping).
+// from public/audio (see public/audio/README.md for the file mapping), and a
+// background-music channel (synthesized lofi, or a user-supplied music.mp3).
 let ctx = null, master = null, muted = false;
 let engine = null, wind = null, skid = null;
+let noiseBuf = null;   // shared white noise (wind/skid/drums/vinyl)
 
 // ---------------------------------------------------------------- sample bank
 const SAMPLES = {
@@ -118,11 +120,12 @@ export function initAudio() {
   o1.start(); o2.start(); o3.start();
   engine = { o1, o2, o3, gain: eg, lp };
 
-  // Noise buffer shared by wind + skid.
+  // Noise buffer shared by wind + skid (and the music's drums/vinyl).
   const len = ctx.sampleRate * 2;
   const buf = ctx.createBuffer(1, len, ctx.sampleRate);
   const data = buf.getChannelData(0);
   for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+  noiseBuf = buf;
 
   const wsrc = ctx.createBufferSource(); wsrc.buffer = buf; wsrc.loop = true;
   const wlp = ctx.createBiquadFilter(); wlp.type = 'lowpass'; wlp.frequency.value = 420;
@@ -140,6 +143,171 @@ export function initAudio() {
 
   // Decode anything that finished downloading before the context existed.
   for (const name of Object.keys(encoded)) decodeOne(name);
+
+  startMusic();
+}
+
+// ---------------------------------------------------------------- music
+// Background radio. If /audio/music.mp3 exists it plays that (drop in your own
+// properly licensed track); otherwise an endless lofi loop is synthesized in
+// code — nothing shipped, nothing to license. Routed through `master`, so the
+// M key mutes it along with everything else.
+const MUSIC_VOL = { lobby: 0.30, race: 0.16 };
+let music = null;
+let musicOn = true;
+try { musicOn = localStorage.getItem('hr_music') !== 'off'; } catch {}
+let musicScene = 'lobby';
+const musicTarget = () => (musicOn ? MUSIC_VOL[musicScene] : 0);
+
+export function setMusicScene(scene) {
+  musicScene = scene === 'race' ? 'race' : 'lobby';
+  if (music && ctx) music.gain.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.9);
+}
+
+export function setMusicOn(on) {
+  musicOn = !!on;
+  try { localStorage.setItem('hr_music', musicOn ? 'on' : 'off'); } catch {}
+  if (music && ctx) music.gain.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.4);
+  else if (musicOn) startMusic();
+}
+
+export function musicStatus() {
+  return { on: musicOn, mode: music ? music.mode : 'none', scene: musicScene, bars: music ? music.bars || 0 : 0 };
+}
+
+async function startMusic() {
+  if (music || !ctx || !musicOn) return;
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  // Radio tone: roll the top off for warmth, keep the low end tidy.
+  const warm = ctx.createBiquadFilter(); warm.type = 'lowpass'; warm.frequency.value = 4200; warm.Q.value = 0.4;
+  const tidy = ctx.createBiquadFilter(); tidy.type = 'highpass'; tidy.frequency.value = 46;
+  gain.connect(warm); warm.connect(tidy); tidy.connect(master);
+  music = { gain, mode: 'lofi', bars: 0 };
+
+  try {
+    const head = await fetch('/audio/music.mp3', { method: 'HEAD' });
+    if (head.ok) {
+      const el = new Audio('/audio/music.mp3');
+      el.loop = true;
+      ctx.createMediaElementSource(el).connect(gain);
+      await el.play().catch(() => {});
+      music.mode = 'file';
+      music.el = el;
+      gain.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 1.2);
+      return;
+    }
+  } catch {}
+
+  startLofi(gain);
+  gain.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 1.2);
+}
+
+// Synthesized lofi: swung boom-bap drums, a soft electric piano comping ninth
+// chords, a round sub bass, and a vinyl-crackle bed. Events are scheduled a
+// bar ahead on a timer, so the loop is endless and sample-accurate.
+function startLofi(out) {
+  const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
+  const BEAT = 60 / 76;         // 76 BPM
+  const SWING = 0.62;           // off-8ths land late — the lofi lean
+  const CHORDS = [              // ii–V–I–vi in C, soft ninth voicings
+    { keys: [65, 69, 72, 76], bass: 38 },   // Dm9
+    { keys: [65, 69, 71, 74], bass: 43 },   // G13
+    { keys: [64, 67, 71, 74], bass: 36 },   // Cmaj9
+    { keys: [64, 67, 72, 76], bass: 33 },   // Am9
+  ];
+
+  const ep = (note, t, vel) => {
+    const f = midi(note);
+    const o1 = ctx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = f;
+    const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 2.004;
+    const g2 = ctx.createGain(); g2.gain.value = 0.18;   // faint bell double
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1500; lp.Q.value = 0.3;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vel * 0.16, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 1.7);
+    o1.connect(lp); o2.connect(g2); g2.connect(lp); lp.connect(g); g.connect(out);
+    o1.start(t); o2.start(t); o1.stop(t + 1.8); o2.stop(t + 1.8);
+  };
+  const bass = (note, t, vel) => {
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = midi(note);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vel * 0.22, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
+    o.connect(g); g.connect(out);
+    o.start(t); o.stop(t + 0.95);
+  };
+  const kick = (t, vel) => {
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(105, t);
+    o.frequency.exponentialRampToValueAtTime(42, t + 0.11);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vel * 0.5, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g); g.connect(out);
+    o.start(t); o.stop(t + 0.25);
+  };
+  const noiseHit = (t, dur, type, freq, vel, q = 1) => {
+    const s = ctx.createBufferSource(); s.buffer = noiseBuf;
+    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vel, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(f); f.connect(g); g.connect(out);
+    s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.02);
+  };
+  const snare = (t, vel) => {
+    noiseHit(t, 0.16, 'bandpass', 1750, vel * 0.24, 0.8);
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 185;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vel * 0.12, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o.connect(g); g.connect(out);
+    o.start(t); o.stop(t + 0.1);
+  };
+  const hat = (t, vel) => noiseHit(t, 0.045, 'highpass', 6800, vel * 0.11);
+
+  // vinyl bed: constant hiss + the occasional pop
+  const hiss = ctx.createBufferSource(); hiss.buffer = noiseBuf; hiss.loop = true; hiss.playbackRate.value = 0.42;
+  const hf = ctx.createBiquadFilter(); hf.type = 'bandpass'; hf.frequency.value = 3400; hf.Q.value = 0.5;
+  const hg = ctx.createGain(); hg.gain.value = 0.012;
+  hiss.connect(hf); hf.connect(hg); hg.connect(out); hiss.start();
+
+  let bar = 0;
+  let nextBar = ctx.currentTime + 0.15;
+  const human = () => (Math.random() - 0.5) * 0.016;
+  const tick = () => {
+    if (!music || music.mode !== 'lofi' || !musicOn) { nextBar = Math.max(nextBar, ctx.currentTime + 0.1); return; }
+    while (nextBar < ctx.currentTime + 1.0) {
+      const t0 = nextBar;
+      const ch = CHORDS[bar % 4];
+      // drums: boom-bap — kick 1 (+ pickup), snare on 2 and 4, swung hats
+      kick(t0 + human(), 0.95);
+      if (bar % 2 === 0) kick(t0 + BEAT * 1.75 + human(), 0.5);
+      kick(t0 + BEAT * 2.5 + human(), 0.72);
+      snare(t0 + BEAT + human(), 0.8);
+      snare(t0 + BEAT * 3 + human(), 0.88);
+      for (let e = 0; e < 8; e++) {
+        const tb = t0 + Math.floor(e / 2) * BEAT + (e % 2 ? BEAT * SWING : 0);
+        hat(tb + human(), e % 2 ? 0.32 : 0.6);
+      }
+      // EP comp: rolled chord on 1; a softer push on the '&' of 2 every other bar
+      ch.keys.forEach((k, i) => ep(k, t0 + human() + i * 0.014, 0.5));
+      if (bar % 2 === 1) ch.keys.forEach((k, i) => ep(k, t0 + BEAT * (1 + SWING) + human() + i * 0.014, 0.3));
+      // bass: root on 1, a walk note into the next bar
+      bass(ch.bass, t0 + human(), 0.9);
+      bass(ch.bass + (bar % 4 === 3 ? 5 : 7), t0 + BEAT * 2.5 + human(), 0.45);
+      // a vinyl pop somewhere in the bar, sometimes
+      if (Math.random() < 0.6) noiseHit(t0 + Math.random() * BEAT * 4, 0.02, 'highpass', 2800, 0.045);
+      bar++;
+      music.bars = bar;
+      nextBar += BEAT * 4;
+    }
+  };
+  music.timer = setInterval(tick, 200);
+  tick();
 }
 
 // Diagnostics: reports whether the recorded engine loops are driving the sound

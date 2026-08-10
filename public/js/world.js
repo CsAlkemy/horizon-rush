@@ -291,9 +291,35 @@ function rangeStrip(track, i0, i1, fnA, fnB, vPeriod = 2) {
   return geo;
 }
 
+// Shared across world rebuilds (map switches). The environment map is identical
+// for every map, and the tree impostor can only be baked once — baking frees the
+// source model's geometry.
+let _envTexture = null;
+let _treeImpostor = null;
+
 // ------------------------------------------------------------- main builder
 export function buildWorld(scene, renderer, track, quality, treeModel = null) {
-  const world = { checkpoints: [], quality };
+  const T = track.def.theme;
+  // Every object the world creates hangs off one root, so switching maps is
+  // "remove the root" rather than bookkeeping each mesh individually.
+  const root = new THREE.Group();
+  scene.add(root);
+  const world = { checkpoints: [], quality, root };
+
+  world.dispose = () => {
+    scene.remove(root);
+    root.traverse((o) => {
+      if (o.isLight) { o.dispose(); return; }   // frees the shadow map target
+      if (o.isInstancedMesh) o.dispose();       // frees instance attribute buffers
+      if (o.geometry) o.geometry.dispose();
+      const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+      for (const m of mats) {
+        if (!m) continue;
+        if (m.map && !m.userData.sharedMap) m.map.dispose();
+        m.dispose();
+      }
+    });
+  };
 
   // --- distance-to-track helper (coarse, fine enough for scenery/terrain)
   const S = track.samples;
@@ -309,34 +335,40 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
 
   function heightAt(x, z) {
     const e = fbm(x * 0.006 + 13.1, z * 0.006 + 7.7);
-    let h = (e - 0.34) * 46;
+    let h = (e - 0.34) * T.heightAmp;
     const inland = smoothstep(-150, 460, x * 0.8 + z * 0.45);
     h *= 0.5 + inland * 1.25;
-    // Coast drops away west of the circuit (track min x is about -390).
-    const coast = smoothstep(-440, -700, x);
-    h = h * (1 - coast) - 9 * coast;
+    if (T.ocean != null) {
+      // Coast drops away west of the circuit (track min x is about -390).
+      const coast = smoothstep(-440, -700, x);
+      h = h * (1 - coast) - 9 * coast;
+    }
     const d = trackDist(x, z);
     // Depress terrain slightly below the road plane near the track so the thin
     // road ribbon never z-fights or pokes through terrain triangles.
     const m = smoothstep(18, 95, d);
     h = h * m - (1 - m) * 0.45;
-    return Math.max(-9, h);
+    return Math.max(T.ocean != null ? -9 : -2, h);
   }
   world.heightAt = heightAt;
 
   // --- environment / sky ---------------------------------------------------
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.fog = new THREE.Fog(0xcfe0f0, 320, 2700);
+  if (!_envTexture) {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    _envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+  }
+  scene.environment = _envTexture;
+  scene.fog = new THREE.Fog(T.fog[0], T.fog[1], T.fog[2]);
 
   const skyGeo = new THREE.SphereGeometry(4200, 32, 16);
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     uniforms: {
-      top: { value: new THREE.Color(0x3d7fd6) },
-      mid: { value: new THREE.Color(0x8fb8e8) },
-      bot: { value: new THREE.Color(0xd8e6f2) },
+      top: { value: new THREE.Color(T.sky[0]) },
+      mid: { value: new THREE.Color(T.sky[1]) },
+      bot: { value: new THREE.Color(T.sky[2]) },
     },
     vertexShader: `
       varying vec3 vP;
@@ -350,12 +382,12 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
         gl_FragColor = vec4(c, 1.0);
       }`,
   });
-  scene.add(new THREE.Mesh(skyGeo, skyMat));
+  root.add(new THREE.Mesh(skyGeo, skyMat));
 
   // clouds
   const cloudTex = cloudTexture();
   const clouds = new THREE.Group();
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < T.clouds; i++) {
     const m = new THREE.SpriteMaterial({ map: cloudTex, transparent: true, opacity: 0.8, depthWrite: false, fog: false });
     const sp = new THREE.Sprite(m);
     const a = Math.random() * Math.PI * 2, r = 500 + Math.random() * 1500;
@@ -364,12 +396,12 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     sp.scale.set(sc, sc * 0.45, 1);
     clouds.add(sp);
   }
-  scene.add(clouds);
+  root.add(clouds);
   world.clouds = clouds;
 
   // --- lights ----------------------------------------------------------------
-  scene.add(new THREE.HemisphereLight(0xbdd8f2, 0x5a6a52, 0.85));
-  const sun = new THREE.DirectionalLight(0xfff2dd, 2.4);
+  root.add(new THREE.HemisphereLight(T.hemi[0], T.hemi[1], T.hemi[2]));
+  const sun = new THREE.DirectionalLight(T.sun[0], T.sun[1]);
   sun.castShadow = quality !== 'low';
   const shadowRes = quality === 'high' ? 2048 : 1024;
   sun.shadow.mapSize.set(shadowRes, shadowRes);
@@ -384,7 +416,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
   // Small: a large normalBias offsets the shadow lookup so far that contact
   // shadows vanish and cars look pasted onto the road.
   sun.shadow.normalBias = 0.03;
-  scene.add(sun, sun.target);
+  root.add(sun, sun.target);
   world.sun = sun;
 
   // --- terrain -----------------------------------------------------------------
@@ -393,8 +425,8 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
   terrGeo.rotateX(-Math.PI / 2);
   const tp = terrGeo.attributes.position;
   const colors = new Float32Array(tp.count * 3);
-  const cGrass = new THREE.Color(0x4b6b2f), cGrass2 = new THREE.Color(0x3c5a26);
-  const cSand = new THREE.Color(0xcbb27a), cRock = new THREE.Color(0x6f6a62);
+  const cGrass = new THREE.Color(T.ground[0]), cGrass2 = new THREE.Color(T.ground[1]);
+  const cSand = new THREE.Color(T.sand), cRock = new THREE.Color(T.rock);
   const col = new THREE.Color();
   for (let i = 0; i < tp.count; i++) {
     const x = tp.getX(i), z = tp.getZ(i);
@@ -402,28 +434,30 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     tp.setY(i, h);
     const n = fbm(x * 0.02, z * 0.02);
     col.copy(cGrass).lerp(cGrass2, n);
-    // Sand only on the western beach strip and underwater — grass elsewhere,
+    // Sand only on the western beach strip and underwater — ground elsewhere,
     // including the flattened corridor around the road.
-    const beach = smoothstep(-430, -560, x);
+    const beach = T.ocean != null ? smoothstep(-430, -560, x) : 0;
     const sandMix = Math.max(beach, smoothstep(-0.3, -2.5, h));
     col.lerp(cSand, sandMix);
-    if (h > 11) col.lerp(cRock, smoothstep(11, 22, h));
+    if (h > T.rockLine) col.lerp(cRock, smoothstep(T.rockLine, T.rockLine * 2, h));
     colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b;
   }
   terrGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   terrGeo.computeVertexNormals();
   const terrain = new THREE.Mesh(terrGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }));
   terrain.receiveShadow = true;
-  scene.add(terrain);
+  root.add(terrain);
 
   // ocean
-  const ocean = new THREE.Mesh(
-    new THREE.PlaneGeometry(9000, 9000),
-    new THREE.MeshStandardMaterial({ color: 0x1a6fa8, roughness: 0.16, metalness: 0.08, envMapIntensity: 1.1 })
-  );
-  ocean.rotation.x = -Math.PI / 2;
-  ocean.position.y = -2.4;
-  scene.add(ocean);
+  if (T.ocean != null) {
+    const ocean = new THREE.Mesh(
+      new THREE.PlaneGeometry(9000, 9000),
+      new THREE.MeshStandardMaterial({ color: T.ocean, roughness: 0.16, metalness: 0.08, envMapIntensity: 1.1 })
+    );
+    ocean.rotation.x = -Math.PI / 2;
+    ocean.position.y = -2.4;
+    root.add(ocean);
+  }
 
   // --- road -----------------------------------------------------------------
   const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTexture(), roughness: 0.92, metalness: 0 });
@@ -433,10 +467,10 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     (s) => [s.x + s.nx * ROAD_HALF, ROAD_Y, s.z + s.nz * ROAD_HALF],
     8), roadMat);
   road.receiveShadow = true;
-  scene.add(road);
+  root.add(road);
 
   // sand shoulders
-  const sandMat = new THREE.MeshStandardMaterial({ color: 0xc9b078, roughness: 1 });
+  const sandMat = new THREE.MeshStandardMaterial({ color: T.shoulder, roughness: 1 });
   const shW = SHOULDER + 0.6;
   for (const side of [-1, 1]) {
     // Pass edges in ascending signed-offset order so the winding (and hence the
@@ -450,7 +484,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
       (s) => [s.x + s.nx * oB, yB, s.z + s.nz * oB],
       8), sandMat);
     sh.receiveShadow = true;
-    scene.add(sh);
+    root.add(sh);
   }
 
   // --- corner detection (curbs + chevrons) -----------------------------------
@@ -484,7 +518,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
       2.2);
     const curb = new THREE.Mesh(geo, curbMat);
     curb.receiveShadow = true;
-    scene.add(curb);
+    root.add(curb);
   }
 
   // --- guardrails -------------------------------------------------------------
@@ -495,13 +529,16 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
       (s) => [s.x + s.nx * side * railOff, 0.42, s.z + s.nz * side * railOff],
       (s) => [s.x + s.nx * side * railOff, 0.78, s.z + s.nz * side * railOff],
       4), railMat);
-    scene.add(band);
+    root.add(band);
   }
   // rail posts (instanced)
   const postGeo = new THREE.BoxGeometry(0.09, 0.8, 0.14);
   const postMat = new THREE.MeshStandardMaterial({ color: 0x7c828a, metalness: 0.7, roughness: 0.5 });
+  // ceil, not floor: the fill loop below visits ceil(N/postEvery) samples, and
+  // an InstancedMesh whose count exceeds its allocation makes every draw fail
+  // with GL_INVALID_OPERATION (posts simply vanish on strict drivers).
   const postEvery = Math.max(1, Math.round(4 / track.ds));
-  const postCount = Math.floor(track.N / postEvery) * 2;
+  const postCount = Math.ceil(track.N / postEvery) * 2;
   const posts = new THREE.InstancedMesh(postGeo, postMat, postCount);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1);
   let pi = 0;
@@ -514,7 +551,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     }
   }
   posts.count = pi;
-  scene.add(posts);
+  root.add(posts);
 
   // --- start gantry + checker line ---------------------------------------------
   const s0 = S[0];
@@ -538,7 +575,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
   banner.position.set(s0.x, 6.2, s0.z);
   banner.rotation.y = Math.atan2(s0.tx, s0.tz) + Math.PI;
   gantry.add(banner);
-  scene.add(gantry);
+  root.add(gantry);
 
   const checker = new THREE.Mesh(
     rangeStrip(track, track.N - 2, 2,
@@ -546,7 +583,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
       (s) => [s.x + s.nx * ROAD_HALF, ROAD_Y + 0.02, s.z + s.nz * ROAD_HALF], 4),
     new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.8 })
   );
-  scene.add(checker);
+  root.add(checker);
 
   // --- chevron signs on sharp corners -------------------------------------------
   const chevL = chevronTexture(-1), chevR = chevronTexture(1);
@@ -572,7 +609,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     sign.position.set(s.x + s.nx * outer * (railOff + 1.6), 0, s.z + s.nz * outer * (railOff + 1.6));
     sign.rotation.y = Math.atan2(-s.tx, -s.tz);
     sign.traverse(o => { if (o.isMesh) o.castShadow = true; });
-    scene.add(sign);
+    root.add(sign);
   }
 
   // --- billboards -----------------------------------------------------------------
@@ -597,7 +634,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     bb.position.set(bx, by, bz);
     bb.rotation.y = Math.atan2(p.x - bx, p.z - bz);
     bb.traverse(o => { if (o.isMesh) o.castShadow = true; });
-    scene.add(bb);
+    root.add(bb);
   }
 
   // --- telephone poles + wires -----------------------------------------------------
@@ -621,7 +658,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     arm.rotation.y = p.h;
     pole.add(post, arm);
     pole.position.set(px, py, pz);
-    scene.add(pole);
+    root.add(pole);
     polePts.push(new THREE.Vector3(px, py + 7.55, pz));
   }
   for (let i = 0; i < polePts.length; i++) {
@@ -630,7 +667,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     const mid = a.clone().lerp(b, 0.5); mid.y -= 1.3;
     const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
     const wire = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(10)), wireMat);
-    scene.add(wire);
+    root.add(wire);
   }
 
   // --- trees --------------------------------------------------------------------------
@@ -639,27 +676,30 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
   // hence the generous attempt budget.
   const treeSpots = [];
   let attempts = 0;
-  while (treeSpots.length < 420 && attempts < 26000) {
+  while (treeSpots.length < T.trees && attempts < 26000) {
     attempts++;
     const x = (Math.random() * 2 - 1) * 1500;
     const z = (Math.random() * 2 - 1) * 1500;
     const h = heightAt(x, z);
-    if (h < -0.05 || h > 21) continue;
-    if (x < -430) continue; // keep the beach clear
+    if (h < -0.05 || h > T.treeMax) continue;
+    if (T.ocean != null && x < -430) continue; // keep the beach clear
     const d = trackDist(x, z);
     if (d < 17 || d > 620) continue;
     treeSpots.push([x, h, z, 0.75 + Math.random() * 1.1, Math.random() * Math.PI * 2]);
   }
 
-  const impostor = treeModel ? bakeTreeImpostor(renderer, treeModel) : null;
+  if (treeModel && !_treeImpostor) _treeImpostor = bakeTreeImpostor(renderer, treeModel);
+  const impostor = _treeImpostor;
   if (impostor) {
     // alphaTest rather than blending, so foliage sorts correctly against itself.
+    // The texture is shared across map rebuilds — dispose() must leave it alone.
     const mat = new THREE.MeshBasicMaterial({
       map: impostor.texture,
       alphaTest: 0.4,
       side: THREE.DoubleSide,
       fog: true,
     });
+    mat.userData.sharedMap = true;
     const geo = crossedQuads(impostor.aspect);
     const trees = new THREE.InstancedMesh(geo, mat, treeSpots.length);
     const tint = new THREE.Color();
@@ -670,12 +710,12 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
       trees.setMatrixAt(i, m4);
       // Slight per-tree shade variation so a single baked image does not read
       // as one tree stamped 300 times.
-      tint.setHSL(0.28, 0.06, 0.86 + Math.random() * 0.14);
+      tint.setHSL(T.treeHue, T.treeSat, 0.86 + Math.random() * 0.14);
       trees.setColorAt(i, tint);
     });
     trees.instanceMatrix.needsUpdate = true;
     if (trees.instanceColor) trees.instanceColor.needsUpdate = true;
-    scene.add(trees);
+    root.add(trees);
     world.trees = trees;
   } else {
     // Fallback: cheap procedural trunk + leaf blobs.
@@ -696,25 +736,25 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
       blobs.setMatrixAt(i * 2, m4);
       m4.compose(new THREE.Vector3(x + 0.8 * s, y + 2.3 * s, z + 0.3 * s), q, new THREE.Vector3(s * 0.8, s * 0.8, s * 0.8));
       blobs.setMatrixAt(i * 2 + 1, m4);
-      leafCol.setHSL(0.29 + Math.random() * 0.06, 0.5, 0.28 + Math.random() * 0.12);
+      leafCol.setHSL(T.treeHue + 0.01 + Math.random() * 0.06, 0.5, 0.28 + Math.random() * 0.12);
       blobs.setColorAt(i * 2, leafCol);
       blobs.setColorAt(i * 2 + 1, leafCol);
     });
     trunks.castShadow = blobs.castShadow = quality === 'high';
-    scene.add(trunks, blobs);
+    root.add(trunks, blobs);
   }
 
   // --- rocks on the high ground ----------------------------------------------------------
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
-  const rockMat = new THREE.MeshStandardMaterial({ color: 0x77726a, roughness: 0.95, flatShading: true });
+  const rockMat = new THREE.MeshStandardMaterial({ color: T.rock, roughness: 0.95, flatShading: true });
   const rockSpots = [];
   attempts = 0;
-  while (rockSpots.length < 46 && attempts < 3000) {
+  while (rockSpots.length < T.rocks && attempts < 8000) {
     attempts++;
     const x = (Math.random() * 2 - 1) * 1300;
     const z = (Math.random() * 2 - 1) * 1300;
     const h = heightAt(x, z);
-    if (h < 10) continue;
+    if (h < T.rockLine - 1) continue;
     if (trackDist(x, z) < 20) continue;
     rockSpots.push([x, h - 0.6, z]);
   }
@@ -725,7 +765,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     m4.compose(new THREE.Vector3(r[0], r[1], r[2]), q, new THREE.Vector3(s, s * 0.8, s));
     rocks.setMatrixAt(i, m4);
   });
-  scene.add(rocks);
+  root.add(rocks);
 
   // --- festival tents near start ----------------------------------------------------------
   const tentCols = [0xff2d78, 0x1477e8, 0xffb400, 0x12b8a8, 0x7a3cf0, 0xff6a13];
@@ -741,7 +781,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     );
     tent.position.set(tx, heightAt(tx, tz) + 1.2, tz);
     tent.castShadow = true;
-    scene.add(tent);
+    root.add(tent);
   }
 
   // --- checkpoint gates ---------------------------------------------------------------------
@@ -754,7 +794,7 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     for (const side of [-1, 1]) {
       const pole = new THREE.Mesh(cpGeo, cpMat);
       pole.position.set(p.x + p.nx * side * (ROAD_HALF + 0.6), 1.4, p.z + p.nz * side * (ROAD_HALF + 0.6));
-      scene.add(pole);
+      root.add(pole);
     }
     world.checkpoints.push({ s: scp, x: p.x, z: p.z });
   }

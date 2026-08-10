@@ -7,26 +7,119 @@ export const ROAD_Y = 0.12;        // asphalt surface height; cars ride on this
 export const TOTAL_LAPS = 3;
 export const GRID_SLOTS = 12;
 
-// Closed counter-clockwise coastal circuit, meters. x = east, z = north.
-export const CONTROL_POINTS = [
-  [-380, -180],
-  [-390, 40],
-  [-375, 230],
-  [-290, 360],
-  [-150, 420],
-  [-20, 400],
-  [70, 320],
-  [180, 330],
-  [290, 290],
-  [360, 180],
-  [370, 30],
-  [330, -120],
-  [220, -200],
-  [80, -170],
-  [-40, -210],
-  [-160, -290],
-  [-300, -300],
+// Track registry. Each entry is a closed counter-clockwise loop of control
+// points (meters, x = east, z = north) plus a scenery theme. The theme is pure
+// data — only the browser's world builder reads it; the server ignores it.
+export const TRACKS = [
+  {
+    id: 'coastal',
+    name: 'Coastal Circuit',
+    tagline: 'Seaside sweepers along the festival beach',
+    points: [
+      [-380, -180],
+      [-390, 40],
+      [-375, 230],
+      [-290, 360],
+      [-150, 420],
+      [-20, 400],
+      [70, 320],
+      [180, 330],
+      [290, 290],
+      [360, 180],
+      [370, 30],
+      [330, -120],
+      [220, -200],
+      [80, -170],
+      [-40, -210],
+      [-160, -290],
+      [-300, -300],
+    ],
+    theme: {
+      sky: [0x3d7fd6, 0x8fb8e8, 0xd8e6f2],
+      fog: [0xcfe0f0, 320, 2700],
+      hemi: [0xbdd8f2, 0x5a6a52, 0.85],
+      sun: [0xfff2dd, 2.4],
+      ground: [0x4b6b2f, 0x3c5a26],
+      sand: 0xcbb27a, rock: 0x6f6a62, shoulder: 0xc9b078,
+      ocean: 0x1a6fa8,
+      heightAmp: 46, rockLine: 11, treeMax: 21,
+      trees: 420, treeHue: 0.28, treeSat: 0.06,
+      rocks: 46, clouds: 16,
+    },
+  },
+  {
+    id: 'alpine',
+    name: 'Alpine Ridge',
+    tagline: 'Tight technical esses through misty pine hills',
+    points: [
+      [-320, -140],
+      [-360, 20],
+      [-300, 160],
+      [-180, 220],
+      [-60, 180],
+      [40, 240],
+      [60, 360],
+      [180, 400],
+      [300, 340],
+      [320, 220],
+      [240, 140],
+      [260, 20],
+      [340, -60],
+      [300, -180],
+      [160, -220],
+      [40, -160],
+      [-80, -200],
+      [-200, -260],
+    ],
+    theme: {
+      sky: [0x2b5f9e, 0x7fa8cc, 0xcfdde8],
+      fog: [0xc2d4dc, 240, 2200],
+      hemi: [0xb8cfe0, 0x46543f, 0.8],
+      sun: [0xfff8ec, 2.2],
+      ground: [0x3f5c2c, 0x2f4a22],
+      sand: 0x9aa08c, rock: 0x7d7a74, shoulder: 0x9b9c8f,
+      ocean: null,
+      heightAmp: 78, rockLine: 14, treeMax: 34,
+      trees: 560, treeHue: 0.33, treeSat: 0.10,
+      rocks: 90, clouds: 20,
+    },
+  },
+  {
+    id: 'dunes',
+    name: 'Sunset Speedway',
+    tagline: 'Flat-out desert flow under an evening sky',
+    points: [
+      [-420, -60],
+      [-400, 160],
+      [-280, 300],
+      [-80, 360],
+      [140, 340],
+      [320, 260],
+      [420, 80],
+      [400, -120],
+      [260, -260],
+      [40, -320],
+      [-180, -300],
+      [-340, -200],
+    ],
+    theme: {
+      sky: [0x3e4a8c, 0xe89a6e, 0xf5d9a8],
+      fog: [0xecd0a8, 380, 3000],
+      hemi: [0xf0d8b8, 0x8a6a48, 0.9],
+      sun: [0xffd9a8, 2.6],
+      ground: [0xc9a86a, 0xb8925a],
+      sand: 0xd9bc82, rock: 0x9a7d5c, shoulder: 0xcfae72,
+      ocean: null,
+      heightAmp: 26, rockLine: 9, treeMax: 18,
+      trees: 90, treeHue: 0.14, treeSat: 0.05,
+      rocks: 130, clouds: 5,
+    },
+  },
 ];
+
+export function trackDef(id) {
+  return TRACKS.find(t => t.id === id) || TRACKS[0];
+}
 
 function cr(p0, p1, p2, p3, t) {
   const t2 = t * t, t3 = t2 * t;
@@ -41,8 +134,9 @@ export function wrapAngle(a) {
   return a;
 }
 
-export function buildTrack(N = 2048) {
-  const cp = CONTROL_POINTS;
+export function buildTrack(id = 'coastal', N = 2048) {
+  const def = trackDef(id);
+  const cp = def.points;
   const n = cp.length;
 
   // Oversample the closed catmull-rom loop, then resample to uniform arclength.
@@ -192,5 +286,5 @@ export function buildTrack(N = 2048) {
     return { x: p.x + p.nx * lat, z: p.z + p.nz * lat, h: p.h, s: p.s };
   }
 
-  return { N, L, ds, samples, point, closestS, lineOffset, curvAheadMax, gridSlot, idxOf };
+  return { id: def.id, def, N, L, ds, samples, point, closestS, lineOffset, curvAheadMax, gridSlot, idxOf };
 }

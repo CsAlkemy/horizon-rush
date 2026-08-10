@@ -14,6 +14,9 @@ export class HUD {
   show() { $('hud').classList.remove('hidden'); }
   hide() { $('hud').classList.add('hidden'); }
 
+  // Map switches hand the minimap the new circuit.
+  setTrack(track) { this.track = track; }
+
   // ------------------------------------------------ speedometer (SVG arc)
   gaugeInit() {
     const svg = $('gauge');

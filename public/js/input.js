@@ -71,9 +71,12 @@ export function readInput(dt, speed = 0) {
 
   // Steering: slower ease at speed (stability), quicker when slow (agility).
   // Crossing the centre counts as a release so flicking left-to-right is crisp.
+  // The fade at speed is deliberately mild — the tyres' lateral-accel cap in
+  // the physics is what keeps the car planted, so the input can stay alive;
+  // fading it hard as well is what made fast direction changes feel stuck.
   const fast = Math.min(speed / 75, 1);
   const centring = steerTarget === 0 || Math.sign(steerTarget) !== Math.sign(steerState);
-  const steerRate = centring ? 12 - fast * 3 : 8 - fast * 4.4;
+  const steerRate = centring ? 13 - fast * 2 : 9 - fast * 2.6;
   steerState = approach(steerState, steerTarget, steerRate, dt);
   if (steerTarget === 0 && Math.abs(steerState) < 0.015) steerState = 0;
 
@@ -97,4 +100,45 @@ export function readInput(dt, speed = 0) {
 export function clearInput() {
   steerState = throttleState = brakeState = 0;
   keys.clear();
+}
+
+// ---------------------------------------------------------------- haptics
+// Gamepad rumble. Layers, strongest first: impact thump, brake judder that
+// builds with pedal pressure and speed, sand/offroad rumble, drift buzz.
+// dual-rumble effects replace each other, so one refresh ~every 90 ms is both
+// the throttle (the API dislikes per-frame calls) and the mixer.
+let hapticHold = 0;
+export function updateHaptics(dt, { brake = 0, speed = 0, impact = 0, offroad = false, slip = 0 } = {}) {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let act = null;
+  for (const gp of pads) {
+    if (gp && gp.vibrationActuator) { act = gp.vibrationActuator; break; }
+  }
+  if (!act) return;
+
+  hapticHold -= dt;
+  if (impact > 3) {
+    // A hit always lands immediately and holds off the continuous layers.
+    try {
+      act.playEffect('dual-rumble', {
+        duration: 130,
+        strongMagnitude: Math.min(1, impact / 14),
+        weakMagnitude: Math.min(1, 0.3 + impact / 20),
+      });
+    } catch {}
+    hapticHold = 0.13;
+    return;
+  }
+  if (hapticHold > 0) return;
+
+  const braking = brake > 0.1 && speed > 5 ? Math.min(1, brake * (0.3 + speed / 55)) : 0;
+  const sand = offroad && speed > 4 ? 0.4 : 0;
+  const drifting = Math.abs(slip) > 0.25 && speed > 10 ? 0.25 : 0;
+  const strong = Math.min(1, braking * 0.85 + sand);
+  const weak = Math.min(1, braking * 0.45 + sand * 0.6 + drifting);
+  if (strong < 0.03 && weak < 0.03) return;
+  try {
+    act.playEffect('dual-rumble', { duration: 110, strongMagnitude: strong, weakMagnitude: weak });
+  } catch {}
+  hapticHold = 0.09;
 }

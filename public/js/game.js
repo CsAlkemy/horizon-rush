@@ -6,8 +6,9 @@ import { stepCar, CAR } from '/shared/physics.js';
 import { buildWorld } from './world.js';
 import { createCar, animateCar, setLights, setPaint, carTemplateConfig } from './car.js';
 import { HUD, toast } from './hud.js';
-import { readInput } from './input.js';
-import { updateEngine, sfx, setHorn } from './audio.js';
+import { readInput, updateHaptics } from './input.js';
+import { updateEngine, sfx, setHorn, setMusicScene } from './audio.js';
+import { DriftFX } from './fx.js';
 
 // C cycles these. Cockpit sits at the driver's eye point; hood is on the bonnet.
 const CAM_MODES = ['chase', 'cockpit', 'hood'];
@@ -17,9 +18,10 @@ const MPH = 2.23694;
 const YD = 1.09361;
 
 export class Game {
-  constructor(canvas, quality, treeModel = null) {
+  constructor(canvas, quality, treeModel = null, mapId = 'coastal') {
     this.quality = quality;
-    this.track = buildTrack();
+    this.treeModel = treeModel;   // kept for world rebuilds on map switch
+    this.track = buildTrack(mapId);
     this.laps = TOTAL_LAPS;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -37,6 +39,7 @@ export class Game {
 
     this.world = buildWorld(this.scene, this.renderer, this.track, quality, treeModel);
     this.hud = new HUD(this.track);
+    this.fx = new DriftFX(this.scene);   // tire smoke + rubber marks
 
     // Local car state
     const g = this.track.gridSlot(11);
@@ -82,6 +85,25 @@ export class Game {
     this._camPos = new THREE.Vector3(g.x - Math.sin(g.h) * 8, 4, g.z - Math.cos(g.h) * 8);
     this._lookAt = new THREE.Vector3(g.x, 1.25, g.z);
     this._tmpV = new THREE.Vector3();
+
+    // Rendered car pose. Physics advances in fixed 1/120 s steps while frames
+    // land at arbitrary times, so drawing this.car raw aliases the car's motion
+    // against the display rate — a frame gets 0, 1 or 2 steps of movement, and
+    // at speed that reads as the whole scene vibrating (worst on 120 Hz
+    // panels). Each frame we blend the last two physics states by the
+    // accumulator remainder and draw THAT; the camera follows it too.
+    this._prevPose = { x: g.x, z: g.z, h: g.h };
+    this._viewPose = { x: g.x, z: g.z, h: g.h };
+  }
+
+  // Collapse the interpolation history onto the car's current state. Needed
+  // whenever the car teleports (grid placement, map switch, track reset) so a
+  // frame never blends across the jump.
+  syncPose() {
+    this._prevPose.x = this._viewPose.x = this.car.x;
+    this._prevPose.z = this._viewPose.z = this.car.z;
+    this._prevPose.h = this._viewPose.h = this.car.h;
+    this.acc = 0;
   }
 
   attachNet(net) {
@@ -90,16 +112,26 @@ export class Game {
       this.myId = m.id;
       this.laps = m.laps;
     });
+    // Race-scoped messages are gated on actually being in a race. A message
+    // can cross our exit on the wire (we click BACK TO LOBBY while the server
+    // is broadcasting to the race we were still a member of), and a
+    // backgrounded tab processes its queued messages long after the fact —
+    // without the gate a late 'results' pops the results screen over the
+    // lobby and it looks permanently stuck.
+    const inRace = () => this.phase !== 'lobby';
+
     // Cars come from the race roster, never the lobby list — drivers in the
     // lobby (or in someone else's race) must not appear on your track.
-    net.on('roster', (m) => this.syncRoster(m.roster));
+    net.on('roster', (m) => { if (inRace()) this.syncRoster(m.roster); });
     net.on('grid', (m) => this.onGrid(m));
     net.on('count', (m) => {
+      if (!inRace()) return;
       document.getElementById('countdown').classList.remove('hidden');
       document.getElementById('countNum').textContent = m.n;
       sfx.count();
     });
     net.on('go', () => {
+      if (this.phase !== 'countdown') return;
       document.getElementById('countdown').classList.add('hidden');
       // Belt and braces: 'grid' always lands first and shows the HUD, but a race
       // must never start with the HUD still hidden.
@@ -111,10 +143,12 @@ export class Game {
       this.hud.banner('GO!', 1200);
       sfx.go();
     });
-    net.on('snap', (m) => { this.order = m.order; });
+    net.on('snap', (m) => { if (inRace()) this.order = m.order; });
     net.on('results', (m) => {
+      if (!inRace()) return;
       this.phase = 'results';
       this.hud.results(m.rows, this.myId);
+      setMusicScene('lobby');   // radio back up over the podium
       sfx.panel();
     });
     net.on('finished', (m) => { if (m.id !== this.myId) toast(`${m.name} finished — ${this.posOf(m.id)}`); });
@@ -263,8 +297,28 @@ export class Game {
     }
   }
 
+  // Swap the whole circuit: track math, world scenery, minimap, parked car.
+  // Cheap no-op when the id already matches (the common case on 'grid').
+  setTrack(id) {
+    if (!id || this.track.id === id) return;
+    this.track = buildTrack(id);
+    this.fx.clearMarks();   // old circuit's rubber makes no sense here
+    this.world.dispose();
+    this.world = buildWorld(this.scene, this.renderer, this.track, this.quality, this.treeModel);
+    this.hud.setTrack(this.track);
+    const g = this.track.gridSlot(11);
+    this.car = { x: g.x, z: g.z, h: g.h, vx: 0, vz: 0, s: g.s };
+    this.prevS = g.s;
+    this.gateIdx = 0;
+    this.syncPose();
+    // Snap the camera to the new circuit rather than flying it across the map.
+    this._camPos.set(g.x - Math.sin(g.h) * 8, 4, g.z - Math.cos(g.h) * 8);
+    this._lookAt.set(g.x, 1.25, g.z);
+  }
+
   onGrid(m) {
     this.hud.hideResults();
+    this.setTrack(m.map);   // the race's circuit may differ from the lobby pick
     this.previewMode = false;
     this.showFullBody(false);
     this.phase = 'countdown';
@@ -282,13 +336,15 @@ export class Game {
       if (slot.id === this.myId) {
         this.car = { x: slot.x, z: slot.z, h: slot.h, vx: 0, vz: 0, s: slot.s };
         this.prevS = slot.s;
+        this.syncPose();
       } else {
         const v = this.visuals.get(slot.id);
         if (v) { v.x = slot.x; v.z = slot.z; v.h = slot.h; v.sp = 0; }
       }
     }
     this.hud.show();
-    this.hud.banner(`${this.laps} LAPS — GRID UP`, 1800);
+    this.hud.banner(`${this.track.def.name.toUpperCase()} — ${this.laps} LAPS`, 1800);
+    setMusicScene('race');   // duck the radio under the engines
     sfx.gridUp();
   }
 
@@ -297,6 +353,7 @@ export class Game {
   toLobby() {
     this.hud.hideResults();
     this.hud.hide();
+    setMusicScene('lobby');
     this.phase = 'lobby';
     this.previewMode = true;
     this.showFullBody(true);
@@ -307,6 +364,7 @@ export class Game {
     const g = this.track.gridSlot(11);
     this.car = { x: g.x, z: g.z, h: g.h, vx: 0, vz: 0, s: g.s };
     this.prevS = g.s;
+    this.syncPose();
     this.chainPts = 0; this.chainMult = 1;
     this.hud.chain(0, 1);
   }
@@ -326,9 +384,10 @@ export class Game {
   }
 
   skillTick(now, ev, otherCars) {
-    // drift
+    // drift — threshold sits just under the slip a full power drift settles at,
+    // so committed big-turn slides score, small grip-corner slip does not
     const speed = Math.hypot(this.car.vx, this.car.vz);
-    if (Math.abs(ev.slip) > 0.22 && speed > 13) {
+    if (Math.abs(ev.slip) > 0.19 && speed > 13) {
       this.driftPts += 90 * (1 / 60);
       this.driftIdle = 0;
     } else if (this.driftPts > 0) {
@@ -530,6 +589,7 @@ export class Game {
       this.car.x = c.x; this.car.z = c.z; this.car.h = c.h;
       this.car.vx = 0; this.car.vz = 0;
       this.car.yawRate = 0;
+      this.syncPose();
       sfx.reset();
     }
 
@@ -539,9 +599,23 @@ export class Game {
       this.acc += dt;
       const step = 1 / 120;
       while (this.acc >= step) {
+        this._prevPose.x = this.car.x;
+        this._prevPose.z = this.car.z;
+        this._prevPose.h = this.car.h;
         ev = stepCar(this.car, input, step, this.track);
         this.acc -= step;
       }
+      // Blend the two most recent physics states by the un-simulated remainder
+      // (see constructor note) — this pose is what the car and camera draw from.
+      const a = Math.min(1, this.acc * 120);
+      const vp = this._viewPose, pp = this._prevPose;
+      vp.x = pp.x + (this.car.x - pp.x) * a;
+      vp.z = pp.z + (this.car.z - pp.z) * a;
+      vp.h = pp.h + wrapAngle(this.car.h - pp.h) * a;
+    } else {
+      this._viewPose.x = this.car.x;
+      this._viewPose.z = this.car.z;
+      this._viewPose.h = this.car.h;
     }
 
     // interpolate remote cars
@@ -549,7 +623,13 @@ export class Game {
     for (const [id, v] of this.visuals) {
       const s = this.net ? this.net.sample(id) : null;
       if (s) {
-        v.x = s.x; v.z = s.z;
+        // Light easing on top of the snapshot interpolation: residual velocity
+        // steps between snapshot pairs are invisible at distance but read as
+        // vibration when the car is large on screen, right beside you in an
+        // overtake. First sample after a gap snaps so cars don't glide in.
+        const k = v.shown ? 1 - Math.exp(-dt * 24) : 1;
+        v.x += (s.x - v.x) * k;
+        v.z += (s.z - v.z) * k;
         v.h += wrapAngle(s.h - v.h) * Math.min(1, dt * 14);
         v.sp = s.sp;
         v.shown = true;
@@ -589,25 +669,57 @@ export class Game {
       this.lapTick(now); // keep s updated
     }
 
-    // my visual
+    // my visual — drawn at the interpolated pose, not the raw physics state
     const speed = Math.hypot(this.car.vx, this.car.vz);
+    const vp = this._viewPose;
     if (this.myVisual) {
-      this.myVisual.group.position.set(this.car.x, ROAD_Y, this.car.z);
-      this.myVisual.group.rotation.y = this.car.h;
+      this.myVisual.group.position.set(vp.x, ROAD_Y, vp.z);
+      this.myVisual.group.rotation.y = vp.h;
       animateCar(this.myVisual, speed, input.steer, input.brake, dt);
       // In an interior view, hide our own bodywork's shadow-caster only if it
       // would sit on top of the lens; the model itself stays visible.
       if (this.headlightBeams) {
-        const fx = Math.sin(this.car.h), fz = Math.cos(this.car.h);
+        const fx = Math.sin(vp.h), fz = Math.cos(vp.h);
         for (const spot of this.headlightBeams) {
           spot.intensity = this.lightsOn ? 70 : 0;
           const lat = spot.userData.side * 0.62;
-          spot.position.set(this.car.x + fx * 1.9 + fz * lat, ROAD_Y + 0.62, this.car.z + fz * 1.9 - fx * lat);
-          spot.target.position.set(this.car.x + fx * 26 + fz * lat, ROAD_Y - 0.2, this.car.z + fz * 26 - fx * lat);
+          spot.position.set(vp.x + fx * 1.9 + fz * lat, ROAD_Y + 0.62, vp.z + fz * 1.9 - fx * lat);
+          spot.target.position.set(vp.x + fx * 26 + fz * lat, ROAD_Y - 0.2, vp.z + fz * 26 - fx * lat);
           spot.target.updateMatrixWorld();
         }
       }
     }
+
+    // drift effects: rubber on the road while sliding, smoke off the rears,
+    // sandy dust when running wide. Anchored to the rendered pose.
+    if (this.phase === 'race' || this.phase === 'results') {
+      const hfx = Math.sin(vp.h), hfz = Math.cos(vp.h);
+      const rx = hfz, rz = -hfx;
+      const slipAbs = Math.abs(ev.slip || 0);
+      const sliding = speed > 6 &&
+        (slipAbs > 0.16 || (input.hand && speed > 8) || (this.car.drift || 0) > 0.6);
+      const dusty = !!ev.offroad && speed > 9;
+      for (const side of [-1, 1]) {
+        const wx = vp.x - hfx * 1.45 + rx * side * 0.85;
+        const wz = vp.z - hfz * 1.45 + rz * side * 0.85;
+        this.fx.skid('r' + side, wx, wz, sliding && !ev.offroad, 0.45 + Math.min(0.3, slipAbs));
+        if ((sliding || dusty) && Math.random() < (dusty ? 0.55 : 0.8)) {
+          this.fx.emitSmoke(wx, ROAD_Y + 0.12, wz,
+            -this.car.vx * 0.12, 0, -this.car.vz * 0.12,
+            0.8 + Math.min(1, slipAbs * 2), dusty);
+        }
+      }
+    } else {
+      this.fx.skid('r-1', 0, 0, false);
+      this.fx.skid('r1', 0, 0, false);
+    }
+    this.fx.update(dt);
+
+    // gamepad haptics: brake judder, offroad rumble, impact thumps
+    updateHaptics(dt, {
+      brake: input.brake, speed,
+      impact: ev.impact, offroad: !!ev.offroad, slip: ev.slip || 0,
+    });
 
     // network send
     this.sendTimer += dt;
@@ -638,6 +750,10 @@ export class Game {
 
   updateCamera(dt, speed, now) {
     const cam = this.camera;
+    // Everything here anchors to the interpolated pose the car is DRAWN at —
+    // following the raw physics state instead re-introduces the stepped-motion
+    // shake the view pose exists to remove.
+    const car = this._viewPose;
     if (this.phase === 'lobby' || this.phase === 'countdown' || this.phase === 'results') {
       // Lobby = a tight showroom turntable around your own car; countdown and
       // results keep the wider cinematic orbit.
@@ -650,17 +766,17 @@ export class Game {
       // pushed off-centre by the aim offset below.
       const r = preview ? (wide ? 9.6 : 12.6) : (this.phase === 'countdown' ? 9 : 14);
       const camY = preview ? 2.15 : 3.2;
-      const tx = this.car.x + Math.sin(a) * r;
-      const tz = this.car.z + Math.cos(a) * r;
+      const tx = car.x + Math.sin(a) * r;
+      const tz = car.z + Math.cos(a) * r;
       this._camPos.lerp(this._tmpV.set(tx, camY, tz), Math.min(1, dt * 2.2));
       cam.position.copy(this._camPos);
 
-      let lx = this.car.x, lz = this.car.z, ly = 1;
+      let lx = car.x, lz = car.z, ly = 1;
       if (preview) {
         // Aiming to one side of the car slides it into the screen space the menu
         // panel is not covering: sideways on a wide window, upward on a narrow
         // one where the panel sits along the bottom instead.
-        const dx = this.car.x - cam.position.x, dz = this.car.z - cam.position.z;
+        const dx = car.x - cam.position.x, dz = car.z - cam.position.z;
         const m = Math.hypot(dx, dz) || 1;
         const shift = wide ? 2.5 : 0;      // world metres, screen-left of the car
         lx += (dz / m) * shift;
@@ -674,7 +790,7 @@ export class Game {
       cam.updateProjectionMatrix();
       return;
     }
-    const fx = Math.sin(this.car.h), fz = Math.cos(this.car.h);
+    const fx = Math.sin(car.h), fz = Math.cos(car.h);
     // Right of the car, for seating the driver off-centre (+X is the car's left).
     const rx = fz, rz = -fx;
     const cockpit = this.cockpitOffset();
@@ -684,28 +800,40 @@ export class Game {
       // does; it eases back a little at speed for a sense of pace.
       const dist = 5.9 + Math.min(speed / CAR.topSpeed, 1) * 0.9;
       const height = 2.45;
-      const want = this._tmpV.set(this.car.x - fx * dist, height, this.car.z - fz * dist);
+      const want = this._tmpV.set(car.x - fx * dist, height, car.z - fz * dist);
       // Ease position, and ease the look-ahead point too, so the view sweeps
       // through a curve instead of snapping to the new heading each frame.
       this._camPos.lerp(want, 1 - Math.exp(-dt * 5.2));
+      // That easing trails its target by ~speed/5.2 m, so at pace the car ends
+      // up a dozen metres ahead of the lens, shrinking into the distance. Keep
+      // the smoothed direction (that's the pleasant sweep through corners) but
+      // clamp the actual gap so the car always stays close and filling the frame.
+      let ox = this._camPos.x - car.x, oz = this._camPos.z - car.z;
+      const gap = Math.hypot(ox, oz);
+      const gapMax = dist + 1.0, gapMin = dist * 0.55;
+      if (gap > 1e-6 && (gap > gapMax || gap < gapMin)) {
+        const k = Math.max(gapMin, Math.min(gapMax, gap)) / gap;
+        this._camPos.x = car.x + ox * k;
+        this._camPos.z = car.z + oz * k;
+      }
       cam.position.copy(this._camPos);
       this._lookAt.lerp(
-        this._tmpV.set(this.car.x + fx * 4.5, 1.15, this.car.z + fz * 4.5),
+        this._tmpV.set(car.x + fx * 4.5, 1.15, car.z + fz * 4.5),
         1 - Math.exp(-dt * 7.5)
       );
     } else {
       // Cockpit and hood are rigidly attached — any lag inside the car reads as
       // the whole cabin sliding around, which feels worse than no smoothing.
       const eye = this._tmpV.set(
-        this.car.x + fx * cockpit.fwd + rx * cockpit.side,
+        car.x + fx * cockpit.fwd + rx * cockpit.side,
         ROAD_Y + cockpit.up,
-        this.car.z + fz * cockpit.fwd + rz * cockpit.side
+        car.z + fz * cockpit.fwd + rz * cockpit.side
       );
       cam.position.copy(eye);
       this._camPos.copy(eye);
       // Aim just below eye level down the road, the way a driver actually looks.
       this._lookAt.lerp(
-        this._tmpV.set(this.car.x + fx * 40, ROAD_Y + cockpit.up - 0.55, this.car.z + fz * 40),
+        this._tmpV.set(car.x + fx * 40, ROAD_Y + cockpit.up - 0.55, car.z + fz * 40),
         1 - Math.exp(-dt * 14)
       );
     }
@@ -781,8 +909,9 @@ export class Game {
       cpYd, cpScreenX,
     });
 
-    // minimap + plates
-    this.hud.minimap({ x: this.car.x, z: this.car.z, h: this.car.h }, others);
+    // minimap + plates (the minimap rotates with the car — feed it the same
+    // interpolated pose the camera uses so it doesn't tick at physics rate)
+    this.hud.minimap(this._viewPose, others);
     for (const o of others) {
       const i = this.order.indexOf(o.id);
       this.hud.ensurePlate(o.id, o.name, i >= 0 ? i + 1 : '·', o.human);

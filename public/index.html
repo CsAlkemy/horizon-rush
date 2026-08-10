@@ -69,60 +69,119 @@
 <div id="lobby">
   <div class="lobby-card">
     <div class="logo"><span class="logo-h">HORIZON</span><span class="logo-r">RUSH</span></div>
-    <div class="tagline">LAN FESTIVAL RACING · COASTAL CIRCUIT</div>
+    <div class="tagline">LAN FESTIVAL RACING</div>
 
-    <div class="lobby-row">
-      <label for="nameInput">DRIVER NAME</label>
-      <input id="nameInput" maxlength="14" placeholder="Your name" autocomplete="off">
+    <div class="steps" id="stepsNav">
+      <button type="button" class="step-dot" data-step="1"><span class="sd-num">1</span><span class="sd-label">DRIVER</span></button>
+      <button type="button" class="step-dot" data-step="2"><span class="sd-num">2</span><span class="sd-label">TRACK</span></button>
+      <button type="button" class="step-dot" data-step="3"><span class="sd-num">3</span><span class="sd-label">RIVALS</span></button>
+      <button type="button" class="step-dot" data-step="4"><span class="sd-num">4</span><span class="sd-label">RACE</span></button>
     </div>
 
-    <div class="lobby-row">
-      <label>PAINT</label>
-      <div id="swatches" class="swatches"></div>
-      <div class="paint-hint">Your car is on the track behind this panel — it repaints as you pick.</div>
-    </div>
+    <!-- STEP 1 · DRIVER -->
+    <section class="step" id="step1">
+      <div class="step-title">Who's driving?</div>
+      <div class="lobby-row">
+        <label for="nameInput">DRIVER NAME</label>
+        <input id="nameInput" maxlength="14" placeholder="Your name" autocomplete="off">
+      </div>
+      <div class="lobby-row">
+        <label>PAINT</label>
+        <div id="swatches" class="swatches"></div>
+        <div class="paint-hint">That's your car on the track behind this panel — it repaints live as you pick.</div>
+      </div>
+      <div class="lobby-row">
+        <label for="quality">GRAPHICS</label>
+        <select id="quality">
+          <option value="high">High — smooth (recommended)</option>
+          <option value="med">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+      <div class="lobby-row">
+        <label for="musicSel">MUSIC</label>
+        <select id="musicSel">
+          <option value="on">On — lofi radio</option>
+          <option value="off">Off</option>
+        </select>
+        <div class="paint-hint">The radio is synthesized in-game (nothing to license). Drop your own track at <b>public/audio/music.mp3</b> and it plays instead. M mutes everything.</div>
+      </div>
+    </section>
 
-    <div class="lobby-row">
-      <label>RACE AGAINST</label>
-      <div id="modeSeg" class="seg">
-        <button type="button" class="seg-btn" data-mode="bot">
-          <span class="seg-title">🤖 BOTS</span>
-          <span class="seg-sub">Full grid of drivatars · starts the moment you're ready</span>
+    <!-- STEP 2 · TRACK -->
+    <section class="step hidden" id="step2">
+      <div class="step-title">Pick your circuit</div>
+      <div id="mapSeg" class="map-cards"></div>
+      <div class="paint-hint">The world behind the menu jumps to your pick. In a FRIENDS race, the first driver to hit READY chooses for everyone.</div>
+    </section>
+
+    <!-- STEP 3 · RIVALS -->
+    <section class="step hidden" id="step3">
+      <div class="step-title">Race against…</div>
+      <div id="modeSeg" class="mode-cards">
+        <button type="button" class="mode-card" data-mode="bot">
+          <span class="mc-ico">🤖</span>
+          <span class="mc-title">BOTS</span>
+          <span class="mc-sub">A full grid of drivatars. Starts the moment you're ready — no waiting.</span>
         </button>
-        <button type="button" class="seg-btn" data-mode="friends">
-          <span class="seg-title">👥 FRIENDS</span>
-          <span class="seg-sub">Only the drivers connected to your LAN · no AI</span>
+        <button type="button" class="mode-card" data-mode="friends">
+          <span class="mc-ico">👥</span>
+          <span class="mc-title">FRIENDS</span>
+          <span class="mc-sub">Real people on your Wi-Fi. No AI on the grid.</span>
         </button>
       </div>
-    </div>
 
-    <div class="lobby-row">
-      <label for="quality">GRAPHICS</label>
-      <select id="quality">
-        <option value="high">High — smooth (recommended)</option>
-        <option value="med">Medium</option>
-        <option value="low">Low</option>
-      </select>
-    </div>
+      <div id="partyBox" class="party-box hidden">
+        <div id="partyNone">
+          <div class="party-row">
+            <button type="button" id="partyCreate" class="party-btn wide">➕ CREATE PARTY CODE</button>
+          </div>
+          <div class="party-row">
+            <input id="partyInput" maxlength="4" placeholder="HAVE A CODE?" autocomplete="off" spellcheck="false">
+            <button type="button" id="partyJoinBtn" class="party-btn">JOIN</button>
+          </div>
+          <div class="party-hint">Without a code you race everyone on this network who picks FRIENDS. A party code keeps the race to just your group.</div>
+        </div>
+        <div id="partyYes" class="hidden">
+          <div class="party-row">
+            <span class="party-code-label">PARTY</span>
+            <span id="partyCode" class="party-code">····</span>
+            <button type="button" id="partyCopy" class="party-btn">COPY</button>
+            <button type="button" id="partyLeave" class="party-btn">LEAVE</button>
+          </div>
+          <div class="party-hint">Friend's steps: open the address (step 4) → FRIENDS → enter this code → READY.</div>
+        </div>
+      </div>
+    </section>
 
-    <button id="readyBtn" class="ready-btn">READY — START ENGINE</button>
-    <button id="startNowBtn" class="ready-btn ghost-btn hidden">START NOW WITHOUT THEM</button>
-    <div id="lobbyStatus" class="lobby-status">Connecting…</div>
+    <!-- STEP 4 · RACE -->
+    <section class="step hidden" id="step4">
+      <div id="summaryChips" class="summary"></div>
+      <button id="readyBtn" class="ready-btn">READY — START ENGINE</button>
+      <button id="startNowBtn" class="ready-btn ghost-btn hidden">START NOW WITHOUT THEM</button>
+      <div id="lobbyStatus" class="lobby-status">Connecting…</div>
 
-    <div class="lobby-players">
-      <div class="lp-title">DRIVERS IN LOBBY</div>
-      <div id="lobbyList"></div>
-    </div>
+      <div class="lobby-players">
+        <div class="lp-title">DRIVERS IN LOBBY</div>
+        <div id="lobbyList"></div>
+      </div>
 
-    <div class="lan-box">
-      <div class="lp-title">FRIEND JOINS AT</div>
-      <div id="lanUrl" class="lan-url">…</div>
+      <div class="lan-box">
+        <div class="lp-title">FRIENDS JOIN AT</div>
+        <div id="lanUrls"><div class="lan-url">…</div></div>
+        <div class="lan-hint">Same Wi-Fi/network required — click an address to copy it. Not loading for them? Allow node/terminal through this machine's firewall; guest and hotel Wi-Fi often block device-to-device traffic.</div>
+      </div>
+    </section>
+
+    <div class="step-nav">
+      <button type="button" id="stepBack" class="party-btn">← BACK</button>
+      <button type="button" id="stepNext" class="ready-btn next-btn">NEXT →</button>
     </div>
 
     <div class="controls-hint">
       W/S or ↑/↓ throttle &amp; brake · A/D or ←/→ steer · SPACE handbrake<br>
       C camera (chase / driver / hood) · H horn · L lights · R reset · M mute<br>
-      Gamepad supported
+      Hold full steer at speed to power-drift the big corners · Gamepad supported
     </div>
   </div>
 </div>

@@ -13,14 +13,18 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { buildTrack, TOTAL_LAPS, GRID_SLOTS, wrapAngle } from './shared/track.js';
+import { buildTrack, TRACKS, TOTAL_LAPS, GRID_SLOTS, wrapAngle } from './shared/track.js';
 import { stepCar } from './shared/physics.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4300);
 const LAPS = Number(process.env.LAPS || TOTAL_LAPS);
 
-const track = buildTrack();
+// Every registered circuit, built once. Races reference one each.
+const tracks = {};
+for (const def of TRACKS) tracks[def.id] = buildTrack(def.id);
+const DEFAULT_MAP = TRACKS[0].id;
+const validMap = (id) => Object.hasOwn(tracks, id);
 
 // ---------------------------------------------------------------- static files
 const MIME = {
@@ -56,7 +60,14 @@ function lanIPs() {
       if (it.family === 'IPv4' && !it.internal) out.push(it.address);
     }
   }
-  return out;
+  // Real home/office LAN ranges first. A VPN or virtual adapter often sits
+  // earlier in the interface list, and showing that address first sends
+  // friends to an IP they can never reach — the classic "can't join" report.
+  const rank = (ip) =>
+    ip.startsWith('192.168.') ? 0 :
+    ip.startsWith('10.') ? 1 :
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? 2 : 3;
+  return out.sort((a, b) => rank(a) - rank(b));
 }
 
 const server = http.createServer((req, res) => {
@@ -104,10 +115,25 @@ const MODES = ['bot', 'friends'];
 
 let nextId = 1;
 let nextRaceId = 1;
-// id -> {id,name,color,ready,mode,ws,raceId,state,finished,finishTime,bestLap}
+// id -> {id,name,color,ready,readyAt,mode,map,party,ws,raceId,state,finished,finishTime,bestLap}
 const players = new Map();
-// raceId -> {id,kind,phase,members:Set,ai:[],laps,startAt,firstFinishAt,countTimer}
+// raceId -> {id,kind,phase,trackId,track,members:Set,ai:[],laps,startAt,firstFinishAt,countTimer}
 const races = new Map();
+
+// Party codes carve the FRIENDS pool into explicit groups, so two people can
+// pair up by sharing four letters instead of hoping nobody else on the network
+// is also sitting in FRIENDS mode. No code (key '') = the open LAN group.
+// Ambiguous glyphs (0/O, 1/I/L) are left out of the alphabet.
+const PARTY_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function newPartyCode() {
+  for (let tries = 0; tries < 60; tries++) {
+    let c = '';
+    for (let i = 0; i < 4; i++) c += PARTY_ALPHABET[Math.floor(Math.random() * PARTY_ALPHABET.length)];
+    if (![...players.values()].some(p => p.party === c)) return c;
+  }
+  return 'X' + String(nextId % 900 + 100); // 31^4 codes exhausted — not on a LAN
+}
+function partyKey(p) { return p.party || ''; }
 
 function makeAI(count) {
   return AI_ROSTER.slice(0, count).map((a, i) => ({
@@ -119,9 +145,12 @@ function makeAI(count) {
     car: { x: 0, z: 0, h: 0, vx: 0, vz: 0, s: 0 },
     lap: 0, // grid sits behind the line; first crossing starts lap 1
     prevS: 0,
+    avoid: 0, slow: 1,   // eased traffic-avoidance state (see aiThink)
     finished: false,
     finishTime: 0,
-    input: { steer: 0, throttle: 0, brake: 0, hand: false },
+    // stab: drivatars drive on pure grip — their pace model assumes no
+    // power-drift, and a full-lock avoidance jink must not slide them.
+    input: { steer: 0, throttle: 0, brake: 0, hand: false, stab: true },
   }));
 }
 
@@ -149,11 +178,11 @@ function isRacing(p) {
   return !!r && r.phase !== 'results';
 }
 
-// Drivers picking FRIENDS who are back at the menu — the group a shared race
-// waits for. Anyone already in a race (including its results screen) is out of
-// this set, so they can never block the next one from starting.
-function friendsInLobby() {
-  return [...players.values()].filter(p => p.mode === 'friends' && !p.raceId);
+// Drivers picking FRIENDS who are back at the menu and in the given party —
+// the group a shared race waits for. Anyone already in a race (including its
+// results screen) is out of this set, so they can never block the next one.
+function friendsInLobby(key = '') {
+  return [...players.values()].filter(p => p.mode === 'friends' && !p.raceId && partyKey(p) === key);
 }
 
 function statusOf(p) {
@@ -163,18 +192,25 @@ function statusOf(p) {
 }
 
 // One message drives the whole lobby panel, so the client never has to infer
-// who is being waited on.
+// who is being waited on. `groups` is keyed by party code ('' = open group);
+// each client reads its own entry.
 function lobbyState() {
-  const grp = friendsInLobby();
-  const waiting = grp.filter(p => !p.ready);
+  const groups = {};
+  for (const p of players.values()) {
+    if (p.mode !== 'friends' || p.raceId) continue;
+    const k = partyKey(p);
+    if (!groups[k]) groups[k] = { ready: 0, total: 0, waiting: [] };
+    groups[k].total++;
+    if (p.ready) groups[k].ready++;
+    else groups[k].waiting.push(p.name);
+  }
   return {
     t: 'lobby',
     list: [...players.values()].map(p => ({
       id: p.id, name: p.name, color: p.color, mode: p.mode, status: statusOf(p),
+      party: p.party || null, map: p.map,
     })),
-    friendsReady: grp.length - waiting.length,
-    friendsTotal: grp.length,
-    friendsWaiting: waiting.map(p => p.name),
+    groups,
     racesLive: [...races.values()].filter(r => r.phase !== 'results').length,
   };
 }
@@ -195,7 +231,7 @@ function placeGrid(race) {
   const ids = [...race.ai.map(a => a.id), ...race.members];
   const slots = [];
   ids.forEach((id, i) => {
-    const g = track.gridSlot(i);
+    const g = race.track.gridSlot(i);
     slots.push({ id, x: g.x, z: g.z, h: g.h, s: g.s });
     const a = race.ai.find(v => v.id === id);
     if (a) {
@@ -232,10 +268,18 @@ function beginRace(kind, memberIds) {
   const aiCount = kind === 'bot'
     ? Math.min(AI_ROSTER.length, Math.max(0, GRID_SLOTS - memberIds.length))
     : 0;
+  // The driver who armed first picks the circuit — deterministic and easy to
+  // reason about from the lobby ("first READY chooses the track").
+  const picker = memberIds
+    .map(id => players.get(id)).filter(Boolean)
+    .sort((a, b) => (a.readyAt || 0) - (b.readyAt || 0))[0];
+  const trackId = picker && validMap(picker.map) ? picker.map : DEFAULT_MAP;
   const race = {
     id: 'r' + nextRaceId++,
     kind,
     phase: 'countdown',
+    trackId,
+    track: tracks[trackId],
     members: new Set(memberIds),
     ai: makeAI(aiCount),
     laps: LAPS,
@@ -250,7 +294,7 @@ function beginRace(kind, memberIds) {
   }
 
   const slots = placeGrid(race);
-  sendTo(race, { t: 'grid', slots, laps: race.laps, kind, roster: rosterOf(race) });
+  sendTo(race, { t: 'grid', slots, laps: race.laps, kind, roster: rosterOf(race), map: trackId });
   let n = 3;
   sendTo(race, { t: 'count', n });
   race.countTimer = setInterval(() => {
@@ -267,15 +311,15 @@ function beginRace(kind, memberIds) {
   }, 1000);
 
   const names = memberIds.map(i => (players.get(i) || {}).name).join(', ');
-  console.log(`[race ${race.id}] ${kind} — ${names} + ${aiCount} AI`);
+  console.log(`[race ${race.id}] ${kind} on ${trackId} — ${names} + ${aiCount} AI`);
   return race;
 }
 
-// A shared race launches when every FRIENDS driver back at the menu is ready.
-// `force` is the START NOW escape hatch, so a forgotten browser tab can never
-// strand the drivers who are actually waiting to go.
-function tryStartFriends(force = false) {
-  const grp = friendsInLobby();
+// A shared race launches when every FRIENDS driver of one party group back at
+// the menu is ready. `force` is the START NOW escape hatch, so a forgotten
+// browser tab can never strand the drivers who are actually waiting to go.
+function tryStartFriends(key = '', force = false) {
+  const grp = friendsInLobby(key);
   const ready = grp.filter(p => p.ready);
   if (ready.length < 2) return false;
   if (!force && ready.length !== grp.length) return false;
@@ -283,12 +327,21 @@ function tryStartFriends(force = false) {
   return true;
 }
 
+// After a race ends or someone leaves, any party group may suddenly be all-ready.
+function tryStartAllFriends() {
+  const keys = new Set(
+    [...players.values()].filter(p => p.mode === 'friends' && !p.raceId).map(partyKey)
+  );
+  for (const k of keys) tryStartFriends(k);
+}
+
 function onReady(p) {
   if (isRacing(p)) return;   // already on track — ignore
   leaveRace(p);              // clear a finished race so a new one can be built
   p.ready = true;
+  p.readyAt = Date.now();    // first-armed driver picks the circuit
   if (p.mode === 'bot') beginRace('bot', [p.id]);
-  else tryStartFriends();
+  else tryStartFriends(partyKey(p));
   pushLobby();
 }
 
@@ -312,7 +365,7 @@ function endRace(race) {
     if (p) p.ready = false;
   }
   // Drivers who armed FRIENDS while this one was running can go now.
-  tryStartFriends();
+  tryStartAllFriends();
   pushLobby();
 }
 
@@ -320,7 +373,7 @@ function entityIn(race, id) {
   return race.ai.find(v => v.id === id) || players.get(id);
 }
 
-function progressOf(e) {
+function progressOf(e, track) {
   const s = e.car ? e.car.s : (e.state ? e.state.s : 0);
   const lap = e.car ? e.lap : (e.state ? e.state.lap : 1);
   return lap * track.L + s;
@@ -336,13 +389,13 @@ function standings(race) {
     if (A.finished && B.finished) return A.finishTime - B.finishTime;
     if (A.finished) return -1;
     if (B.finished) return 1;
-    return progressOf(B) - progressOf(A);
+    return progressOf(B, race.track) - progressOf(A, race.track);
   });
   return all.map(e => e.id);
 }
 
 // ---------------------------------------------------------------- AI driving
-function aiThink(a, allCars) {
+function aiThink(a, allCars, track) {
   const car = a.car;
   const sp = Math.hypot(car.vx, car.vz);
   const look = 9 + sp * 0.55;
@@ -370,21 +423,26 @@ function aiThink(a, allCars) {
   else if (sp > target + 2.5) brake = Math.min(1, (sp - target) * 0.18);
   else throttle = 0.5;
 
-  // Simple avoidance of the car directly ahead.
+  // Simple avoidance of the car directly ahead. The reaction is EASED rather
+  // than applied as a hard step: toggling ±0.25 steer per 30 Hz tick made an
+  // AI visibly vibrate exactly when a player drew alongside to overtake.
   const [fx, fz] = [Math.sin(car.h), Math.cos(car.h)];
+  let avoidWant = 0, slowWant = 1;
   for (const o of allCars) {
     if (o.id === a.id) continue;
     const dx = o.x - car.x, dz = o.z - car.z;
     const ahead = dx * fx + dz * fz;
     const side = dx * fz - dz * fx;
     if (ahead > 0 && ahead < 11 && Math.abs(side) < 2.4) {
-      throttle *= 0.35;
+      slowWant = 0.35;
       // side > 0 puts the obstacle to our left, so ease right around it.
-      steer += side > 0 ? 0.25 : -0.25;
+      avoidWant = side > 0 ? 0.25 : -0.25;
     }
   }
-  a.input.steer = steer;
-  a.input.throttle = throttle;
+  a.avoid += (avoidWant - a.avoid) * 0.22;   // ~130 ms ease at 30 Hz
+  a.slow += (slowWant - a.slow) * 0.3;
+  a.input.steer = steer + a.avoid;
+  a.input.throttle = throttle * a.slow;
   a.input.brake = brake;
 }
 
@@ -398,10 +456,10 @@ setInterval(() => {
       if (p && p.state) allCars.push({ id: p.id, x: p.state.x, z: p.state.z });
     }
     for (const a of race.ai) {
-      aiThink(a, allCars);
-      stepCar(a.car, a.input, AI_DT, track);
+      aiThink(a, allCars, race.track);
+      stepCar(a.car, a.input, AI_DT, race.track);
       // Lap counting on start/finish crossing.
-      if (a.prevS > track.L * 0.9 && a.car.s < track.L * 0.1) {
+      if (a.prevS > race.track.L * 0.9 && a.car.s < race.track.L * 0.1) {
         a.lap++;
         if (!a.finished && a.lap > race.laps) {
           a.finished = true;
@@ -414,6 +472,9 @@ setInterval(() => {
 }, 1000 / 30);
 
 // ---------------------------------------------------------------- snapshots
+// 30 Hz, matching the AI physics tick 1:1. Sampling a 30 Hz sim at the old
+// 20 Hz aliased the AI cars' motion — up close (overtaking) they visibly
+// juddered. LAN bandwidth cost of the extra rate is negligible.
 setInterval(() => {
   for (const race of [...races.values()]) {
     if (race.phase !== 'race' && race.phase !== 'countdown') continue;
@@ -448,7 +509,7 @@ setInterval(() => {
       else if (done || graceOver) endRace(race);
     }
   }
-}, 50);
+}, 1000 / 30);
 
 // ---------------------------------------------------------------- websocket
 const wss = new WebSocketServer({ server });
@@ -465,8 +526,9 @@ wss.on('connection', (ws) => {
       joined = true;
       const name = String(m.name || 'Player').slice(0, 14).replace(/[<>&]/g, '') || 'Player';
       const p = {
-        id, name, color: (m.color >>> 0) || 0xcfd2d6, ready: false, ws,
+        id, name, color: (m.color >>> 0) || 0xcfd2d6, ready: false, readyAt: 0, ws,
         mode: MODES.includes(m.mode) ? m.mode : 'bot', raceId: null,
+        map: validMap(m.map) ? m.map : DEFAULT_MAP, party: null,
         state: null, finished: false, finishTime: 0, bestLap: 0,
       };
       players.set(id, p);
@@ -496,17 +558,49 @@ wss.on('connection', (ws) => {
         p.ready = false;   // arming is per-mode; re-confirm after switching
         pushLobby();
         break;
+      case 'map':
+        if (isRacing(p) || !validMap(m.map)) break;
+        p.map = m.map;
+        pushLobby();
+        break;
+      case 'party':
+        // Create / join / leave a FRIENDS party. Any change un-readies the
+        // driver: arming is a confirmation of the group you will race with.
+        if (isRacing(p)) break;
+        if (m.action === 'create') {
+          p.party = newPartyCode();
+          p.ready = false;
+          ws.send(JSON.stringify({ t: 'party', code: p.party }));
+        } else if (m.action === 'join') {
+          const code = String(m.code || '').toUpperCase().trim();
+          const exists = [...players.values()].some(q => q.id !== p.id && q.party === code);
+          if (!/^[A-Z0-9]{4}$/.test(code) || !exists) {
+            ws.send(JSON.stringify({ t: 'partyErr', msg: `No party "${code}" here — ask your friend for the code on their screen.` }));
+            break;
+          }
+          p.party = code;
+          p.ready = false;
+          ws.send(JSON.stringify({ t: 'party', code }));
+        } else if (m.action === 'leave') {
+          p.party = null;
+          p.ready = false;
+          ws.send(JSON.stringify({ t: 'party', code: null }));
+        }
+        pushLobby();
+        break;
       case 'ready':
         if (m.ready === false) { p.ready = false; pushLobby(); break; }
         onReady(p);
         break;
       case 'forceStart':
         if (p.mode === 'friends' && !p.raceId && p.ready) {
-          if (tryStartFriends(true)) pushLobby();
+          if (tryStartFriends(partyKey(p), true)) pushLobby();
         }
         break;
-      case 'lobby':   // back to the menu from the results screen
-        if (isRacing(p)) break;
+      case 'lobby':   // back to the menu — from results, or after finishing early
+        // A driver who has taken the flag may leave while stragglers race on;
+        // only an UNFINISHED mid-race driver is held in.
+        if (isRacing(p) && !p.finished) break;
         leaveRace(p);
         p.ready = false;
         pushLobby();
@@ -540,7 +634,7 @@ wss.on('connection', (ws) => {
     leaveRace(p);
     players.delete(id);
     console.log(`[left] ${id} — ${players.size} player(s) online`);
-    tryStartFriends();   // the remaining FRIENDS drivers may now all be ready
+    tryStartAllFriends();   // the remaining FRIENDS drivers may now all be ready
     pushLobby();
   });
 });
@@ -549,5 +643,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('\n  HORIZON RUSH — LAN racing server');
   console.log(`  Local:   http://localhost:${PORT}`);
   for (const ip of lanIPs()) console.log(`  Friend:  http://${ip}:${PORT}`);
-  console.log(`  Laps: ${LAPS}  ·  Ctrl+C to stop\n`);
+  console.log(`  Maps: ${TRACKS.map(t => t.name).join(', ')}`);
+  console.log(`  Laps: ${LAPS}  ·  Ctrl+C to stop`);
+  console.log('  Friends must be on the same network. Page not loading for them?');
+  console.log('  Allow node through your firewall, and avoid guest Wi-Fi (it isolates devices).\n');
 });

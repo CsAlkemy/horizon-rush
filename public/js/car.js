@@ -83,8 +83,7 @@ export function createCar(colorHex, { spoiler = Math.random() < 0.5, kind = 'ai'
     return {
       group: g,
       body: inst.group,
-      wheels: inst.wheels,
-      steerPivots: [],
+      rigs: inst.rigs,
       paint: inst.paint,
       paintMats: inst.paintMats,
       lightMatR: inst.tailMats[0] || null,
@@ -155,9 +154,9 @@ export function createCar(colorHex, { spoiler = Math.random() < 0.5, kind = 'ai'
     body.add(tr);
   }
 
-  // Wheels: FL, FR, RL, RR — front pair steers, all spin.
-  const wheels = [];
-  const steerPivots = [];
+  // Wheels: FL, FR, RL, RR — front pair steers, all spin. Same rig structure
+  // as the glTF path (steer group -> spin group), just with identity axes.
+  const rigs = [];
   // Slightly wider than the hull so the wheels read outside the bodywork.
   const wheelPos = [
     [-0.94, 1.38, true], [0.94, 1.38, true],
@@ -172,15 +171,20 @@ export function createCar(colorHex, { spoiler = Math.random() < 0.5, kind = 'ai'
     spin.add(tire, rim);
     pivot.add(spin);
     group.add(pivot);
-    wheels.push(spin);
-    if (front) steerPivots.push(pivot);
+    rigs.push({
+      spinObj: spin,
+      steerObj: front ? pivot : null,
+      axle: new THREE.Vector3(1, 0, 0),
+      up: new THREE.Vector3(0, 1, 0),
+      radius: 0.34,
+    });
   }
 
   group.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
   group.add(makeContactShadow(CAR.length, CAR.width));
 
   return {
-    group, body, wheels, steerPivots, paint, paintMats: [paint], lightMatR,
+    group, body, rigs, paint, paintMats: [paint], lightMatR,
     headMats: [lightMatF], tailMats: [lightMatR],
     cabin,   // hidden in cockpit view so you can see out of the procedural car
   };
@@ -203,15 +207,25 @@ export function setLights(car, on) {
   }
 }
 
-// Visual update: wheel spin, steer angle, body roll, brake light glow.
+// Visual update: wheel spin, steer angle, body roll, brake dive, brake lights.
+const TWO_PI = Math.PI * 2;
 export function animateCar(car, speed, steer, brake, dt) {
-  const spin = speed / 0.34;
-  for (const w of car.wheels) w.rotation.x += spin * dt;
-  // steer > 0 is right; clockwise from above is a negative Y rotation.
-  for (const p of car.steerPivots) p.rotation.y = -steer * 0.42;
-  const targetRoll = -steer * Math.min(speed / 40, 1) * 0.05;
+  // Distance-based roll angle, wrapped so the float never loses precision over
+  // a long race. Per-rig radius keeps a model's wheels rolling at true rate.
+  car.dist = ((car.dist || 0) + speed * dt) % 1000;
+  // Ease the VISIBLE steering angle so the front wheels sweep like a real rack
+  // instead of snapping between key states.
+  if (car.steerVis === undefined) car.steerVis = 0;
+  car.steerVis += (steer - car.steerVis) * Math.min(1, dt * 10);
+  for (const r of car.rigs || []) {
+    r.spinObj.quaternion.setFromAxisAngle(r.axle, (car.dist / r.radius) % TWO_PI);
+    // steer > 0 is right; clockwise from above is a negative rotation about up.
+    if (r.steerObj) r.steerObj.quaternion.setFromAxisAngle(r.up, -car.steerVis * 0.42);
+  }
+  const targetRoll = -car.steerVis * Math.min(speed / 40, 1) * 0.05;
   car.body.rotation.z += (targetRoll - car.body.rotation.z) * Math.min(1, dt * 8);
-  const targetPitch = brake > 0.3 && speed > 8 ? 0.02 : 0;
+  // Nose dive scales with how hard the brake is applied.
+  const targetPitch = speed > 6 ? Math.min(1, brake) * 0.028 : 0;
   car.body.rotation.x += (targetPitch - car.body.rotation.x) * Math.min(1, dt * 6);
   setBrakeLights(car, brake > 0.12);
 }
