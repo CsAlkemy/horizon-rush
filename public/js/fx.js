@@ -171,8 +171,8 @@ export class DriftFX {
       this.pPos[i * 3] = p.x;
       this.pPos[i * 3 + 1] = p.y;
       this.pPos[i * 3 + 2] = p.z;
-      this.pMisc[i * 2] = p.s0 * (0.5 + t * 1.7);       // grows as it disperses
-      this.pMisc[i * 2 + 1] = 0.34 * (1 - t) * (1 - t); // fades out
+      this.pMisc[i * 2] = p.s0 * (0.55 + t * 1.9);      // grows as it disperses
+      this.pMisc[i * 2 + 1] = 0.46 * (1 - t) * (1 - t); // fades out
     }
     this.smoke.geometry.attributes.position.needsUpdate = true;
     this.smoke.geometry.attributes.misc.needsUpdate = true;
