@@ -107,6 +107,31 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 .speed-num { font-size: 64px; font-weight: 800; font-style: italic; line-height: .95; letter-spacing: -.02em; }
 .speed-unit { font-size: 16px; font-weight: 700; letter-spacing: .14em; opacity: .85; }
 
+/* Nitro meter — sits just above the speedo */
+.nitro-wrap {
+  position: absolute; right: 26px; bottom: 244px; width: 190px;
+  display: flex; align-items: center; gap: 8px;
+  color: #fff; text-shadow: var(--hud-shadow);
+}
+.nitro-label { font-size: 12px; font-weight: 800; font-style: italic; letter-spacing: .12em; }
+.nitro-bar {
+  flex: 1; height: 10px; border-radius: 5px; overflow: hidden;
+  background: rgba(10, 14, 20, .6);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.35);
+}
+#nitroFill {
+  height: 100%; width: 0;
+  background: linear-gradient(90deg, #ff6a13, #ffb400);
+  transition: width .12s linear;
+}
+.nitro-wrap.empty { opacity: .45; }
+.nitro-wrap.burning .nitro-bar { box-shadow: 0 0 0 2px #ffb400, 0 0 14px rgba(255,180,0,.8); }
+.nitro-wrap.burning #nitroFill { animation: nitroFlash .22s linear infinite alternate; }
+@keyframes nitroFlash {
+  from { filter: brightness(1); }
+  to { filter: brightness(1.7); }
+}
+
 /* Nameplates over cars */
 #plates { position: absolute; inset: 0; overflow: hidden; }
 .plate {
@@ -269,7 +294,7 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 .mc-sub { font-size: 11px; line-height: 1.4; opacity: .6; }
 
 /* rival cards */
-.mode-cards { display: flex; gap: 9px; }
+.mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .mode-card {
   flex: 1; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; text-align: left;
   padding: 13px 13px 11px; border-radius: 11px; cursor: pointer;
@@ -284,6 +309,77 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 .mode-card .mc-ico { font-size: 26px; line-height: 1; }
 .mode-card .mc-title { font-size: 15px; font-weight: 800; letter-spacing: .05em; font-style: italic; }
 .mode-card .mc-sub { font-size: 10.5px; line-height: 1.4; opacity: .6; }
+
+/* driver level chip */
+.level-chip {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: baseline;
+  padding: 10px 12px; margin-bottom: 13px;
+  background: rgba(53,224,230,.06); border: 1px solid rgba(53,224,230,.25); border-radius: 9px;
+}
+.lvl-num { font-size: 16px; font-weight: 800; font-style: italic; color: var(--cyan); }
+.lvl-xp { font-size: 11.5px; font-weight: 700; opacity: .75; }
+.lvl-next { font-size: 10px; opacity: .5; letter-spacing: .06em; }
+.lvl-bar {
+  grid-column: 1 / 3; height: 5px; border-radius: 3px; overflow: hidden;
+  background: rgba(255,255,255,.12);
+}
+.lvl-bar div { height: 100%; background: linear-gradient(90deg, var(--cyan), #3f8cff); border-radius: 3px; }
+
+/* locked paint swatches */
+.swatch { position: relative; }
+.swatch.locked { filter: saturate(.25) brightness(.55); cursor: pointer; }
+.swatch-lock {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 12px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.8);
+}
+.swatch-lock::before { content: "🔒"; position: absolute; font-size: 15px; opacity: .55; }
+
+/* track direction + PB badge */
+.dir-seg { margin-top: 9px; }
+.mc-badge {
+  align-self: flex-start; margin-top: 2px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .08em;
+  color: var(--yellow); background: rgba(255,210,61,.1);
+  border: 1px solid rgba(255,210,61,.3); border-radius: 4px; padding: 1px 6px;
+}
+.mc-badge.empty { color: #8f97a6; background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.14); }
+
+/* quick race */
+.quick-btn { color: var(--yellow); border-color: rgba(255,210,61,.45); }
+.quick-btn:hover { background: rgba(255,210,61,.12); color: #ffe9a8; }
+
+/* daily challenge banner */
+.daily-banner {
+  width: 100%; display: flex; align-items: center; gap: 9px; margin-bottom: 12px;
+  padding: 10px 13px; border-radius: 9px; cursor: pointer; text-align: left;
+  border: 1px solid rgba(255,210,61,.4);
+  background: linear-gradient(92deg, rgba(255,210,61,.12), rgba(255,106,19,.10));
+  color: #ffe9a8; font-family: var(--font); font-size: 12px; font-weight: 800; letter-spacing: .05em;
+  transition: filter .14s;
+}
+.daily-banner:hover { filter: brightness(1.25); }
+.daily-banner b { color: #fff; }
+.daily-best { margin-left: auto; font-size: 10.5px; opacity: .8; font-weight: 700; }
+.daily-go { color: var(--yellow); font-style: italic; }
+
+/* server records */
+.records-box { margin-top: 12px; }
+.rec-row { font-size: 13px; }
+.rec-pos { font-weight: 800; font-style: italic; width: 16px; opacity: .7; }
+.rec-lap { margin-left: auto; font-weight: 800; color: var(--cyan); font-variant-numeric: tabular-nums; }
+.rec-empty { font-size: 12px; opacity: .45; padding: 6px 2px; }
+
+/* championship standings on the results card */
+.champ-box {
+  margin: -4px 0 14px; padding: 11px 13px;
+  background: rgba(255,210,61,.06); border: 1px solid rgba(255,210,61,.3); border-radius: 9px;
+}
+.cb-title { font-size: 13px; font-weight: 800; font-style: italic; letter-spacing: .05em; color: var(--yellow); margin-bottom: 8px; }
+.cb-row { display: flex; gap: 10px; padding: 3px 2px; font-size: 13.5px; font-weight: 600; }
+.cb-row.me { color: var(--yellow); font-weight: 800; }
+.cb-pos { width: 18px; font-weight: 800; font-style: italic; opacity: .75; }
+.cb-pts { margin-left: auto; font-variant-numeric: tabular-nums; }
+.cb-final { margin-top: 9px; font-size: 15px; font-weight: 800; font-style: italic; color: var(--yellow); }
 
 /* step-4 summary chips */
 .summary { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -414,7 +510,7 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
   .seg { flex-direction: column; }
   .seg-btn { flex-direction: row; align-items: baseline; gap: 8px; }
   .seg-btn .seg-sub { flex: 1; }
-  .mode-cards { flex-direction: column; }
+  .mode-cards { grid-template-columns: 1fr; }
   .mode-card { flex-direction: row; align-items: center; gap: 10px; }
   .mode-card .mc-sub { flex: 1; }
   .mc-thumb { width: 128px; height: 64px; }
@@ -441,4 +537,50 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
   position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 50;
   background: rgba(20, 26, 38, .95); color: #fff; padding: 10px 18px; border-radius: 8px;
   font-size: 14px; font-weight: 600; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+}
+
+/* results progression strip */
+.results-progress {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+  margin: -6px 0 14px; padding: 9px 12px;
+  background: rgba(53,224,230,.07); border: 1px solid rgba(53,224,230,.25); border-radius: 8px;
+  font-size: 13px; font-weight: 700; letter-spacing: .03em;
+}
+.results-progress .rp-medal { font-size: 14px; color: var(--yellow); }
+.results-progress .rp-pb { color: var(--cyan); font-style: italic; }
+.results-progress .rp-xp { color: var(--yellow); }
+.results-progress .rp-level { color: var(--cyan); font-style: italic; }
+.results-progress .rp-dot { opacity: .35; }
+
+/* ============================== TOUCH CONTROLS ============================== */
+/* Inside #hud, so they appear only while driving. #hud is pointer-events:none;
+   the buttons opt back in. */
+#touchUI { position: absolute; inset: 0; pointer-events: none; }
+.touch-cluster {
+  position: absolute; bottom: 24px; display: flex; gap: 14px; align-items: flex-end;
+  pointer-events: none;
+}
+.touch-left { left: 18px; }
+.touch-right { right: 18px; }
+.touch-btn {
+  pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
+  width: 86px; height: 86px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.35); background: rgba(10,14,20,.4);
+  color: #fff; font-family: var(--font); font-size: 26px; font-weight: 800;
+  display: grid; place-items: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-btn.on { background: rgba(53,224,230,.35); border-color: var(--cyan); }
+.touch-gas { width: 104px; height: 104px; font-size: 17px; letter-spacing: .08em; border-color: rgba(53,230,139,.5); }
+.touch-brake { font-size: 15px; letter-spacing: .06em; border-color: rgba(255,93,93,.5); }
+.touch-small { width: 64px; height: 64px; font-size: 12px; letter-spacing: .06em; }
+.touch-nitro { border-color: rgba(255,180,0,.55); }
+.touch-nitro.on { background: rgba(255,180,0,.35); border-color: #ffb400; }
+
+/* Touch layouts: get the default HUD out of the thumbs' way */
+@media (pointer: coarse) {
+  #minimap { width: 120px; height: 120px; }
+  .hud-bottomleft { bottom: 130px; }
+  .hud-speedo { transform: scale(.72); transform-origin: bottom right; bottom: 128px; }
+  .nitro-wrap { width: 150px; bottom: 300px; }
 }

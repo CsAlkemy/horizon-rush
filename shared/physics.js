@@ -34,11 +34,15 @@ export const CAR = {
   wheelbase: 2.72,
   width: 1.9,
   length: 4.4,
+  // Nitro: raises the speed ceiling and adds a throttle-independent shove, so
+  // a burn mid-corner still kicks even while feathering. Fed by track pickups.
+  nitroTop: 1.22,      // top-speed multiplier while burning
+  nitroShove: 17,      // extra accel, m/s^2, fading toward the raised ceiling
 };
 
 export function forwardOf(h) { return [Math.sin(h), Math.cos(h)]; }
 
-// Advance one car by dt. car: {x,z,h,vx,vz,s}  input: {steer,throttle,brake,hand,draft}
+// Advance one car by dt. car: {x,z,h,vx,vz,s}  input: {steer,throttle,brake,hand,draft,nitro}
 // Returns events for sound/FX: {impact, scrape, offroad, slip, speed}
 export function stepCar(car, inp, dt, track) {
   const [fx, fz] = forwardOf(car.h);
@@ -89,10 +93,14 @@ export function stepCar(car, inp, dt, track) {
 
   // Longitudinal forces.
   const draftMul = inp.draft ? 1.10 : 1;
+  const boostMul = inp.nitro ? CAR.nitroTop : 1;
   let a = 0;
-  const top = CAR.topSpeed * draftMul;
+  const top = CAR.topSpeed * draftMul * boostMul;
   if (inp.throttle > 0 && vf < top) {
     a += inp.throttle * CAR.engine * draftMul * Math.max(0.12, 1 - Math.max(0, vf) / top);
+  }
+  if (inp.nitro && vf < top) {
+    a += CAR.nitroShove * Math.max(0.2, 1 - Math.max(0, vf) / top);
   }
   if (inp.brake > 0) {
     if (vf > 0.5) a -= inp.brake * CAR.brake;

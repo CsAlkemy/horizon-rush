@@ -8,9 +8,11 @@ export const TOTAL_LAPS = 3;
 export const GRID_SLOTS = 12;
 
 // Track registry. Each entry is a closed counter-clockwise loop of control
-// points (meters, x = east, z = north) plus a scenery theme. The theme is pure
-// data — only the browser's world builder reads it; the server ignores it.
-export const TRACKS = [
+// points (meters, x = east, z = north) plus a scenery theme (pure data — only
+// the browser's world builder reads it; the server ignores it) and medal
+// target times for one lap (ms). Every base circuit also gets a reversed
+// variant, generated below.
+const BASE_TRACKS = [
   {
     id: 'coastal',
     name: 'Coastal Circuit',
@@ -46,6 +48,7 @@ export const TRACKS = [
       trees: 420, treeHue: 0.28, treeSat: 0.06,
       rocks: 46, clouds: 16,
     },
+    medals: { gold: 48000, silver: 54000, bronze: 63000 },
   },
   {
     id: 'alpine',
@@ -83,6 +86,7 @@ export const TRACKS = [
       trees: 560, treeHue: 0.33, treeSat: 0.10,
       rocks: 90, clouds: 20,
     },
+    medals: { gold: 52000, silver: 58000, bronze: 68000 },
   },
   {
     id: 'dunes',
@@ -114,8 +118,30 @@ export const TRACKS = [
       trees: 90, treeHue: 0.14, treeSat: 0.05,
       rocks: 130, clouds: 5,
     },
+    medals: { gold: 43000, silver: 48000, bronze: 56000 },
   },
 ];
+
+// Reversed variants: same circuit, same scenery, driven the other way. The
+// point list is flipped while keeping the first point first, so the start line
+// stays in the same place on the map. Everything downstream — tangents,
+// racing line, grid, curvature — derives from point order, so this is all a
+// variant needs.
+function reverseLoop(points) {
+  return [points[0], ...points.slice(1).reverse()];
+}
+
+export const TRACKS = [];
+for (const t of BASE_TRACKS) {
+  TRACKS.push(t);
+  TRACKS.push({
+    ...t,
+    id: t.id + '-r',
+    reversed: true,
+    base: t.id,
+    points: reverseLoop(t.points),
+  });
+}
 
 export function trackDef(id) {
   return TRACKS.find(t => t.id === id) || TRACKS[0];

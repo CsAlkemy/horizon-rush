@@ -74,6 +74,15 @@ export class HUD {
     }
   }
 
+  // Nitro meter beside the speedo. frac 0..1; `active` flashes the bar while
+  // the boost is burning.
+  nitro(frac, active) {
+    const fill = $('nitroFill');
+    fill.style.width = (frac * 100).toFixed(1) + '%';
+    $('nitroWrap').classList.toggle('burning', !!active);
+    $('nitroWrap').classList.toggle('empty', frac <= 0.001);
+  }
+
   chain(pts, mult) {
     const el = $('chain');
     if (pts <= 0) { el.classList.add('hidden'); return; }
@@ -101,7 +110,7 @@ export class HUD {
   }
 
   // ------------------------------------------------ minimap
-  minimap(self, others) {
+  minimap(self, others, pickups = []) {
     const ctx = this.mmCtx;
     const W = this.mm.width;
     ctx.clearRect(0, 0, W, W);
@@ -138,6 +147,15 @@ export class HUD {
     ctx.fillStyle = '#fff';
     ctx.fillRect(-6, -1.5, 12, 3);
     ctx.restore();
+
+    // nitro canisters still on the road
+    ctx.fillStyle = '#ffb400';
+    for (const p of pickups) {
+      if (!p.active) continue;
+      ctx.beginPath();
+      ctx.arc((p.x - self.x) * scale, (p.z - self.z) * scale, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // other cars
     for (const o of others) {
@@ -190,7 +208,7 @@ export class HUD {
   }
 
   // ------------------------------------------------ results
-  results(rows, myId) {
+  results(rows, myId, extras = null) {
     const tbl = $('resultsTable');
     tbl.innerHTML = rows.map(r => `
       <tr class="${r.id === myId ? 'me' : ''}">
@@ -199,6 +217,43 @@ export class HUD {
         <td class="rtime">${r.dnf ? '—' : fmtTime(r.time)}</td>
         <td class="rtime">${r.bestLap ? 'best ' + fmtTime(r.bestLap) : ''}</td>
       </tr>`).join('');
+
+    // Progression strip: medal, PBs, XP earned, level-ups.
+    const box = $('resultsProgress');
+    if (box) {
+      const bits = [];
+      const st = extras && extras.stats;
+      if (st && st.medal) {
+        const ico = { gold: '🥇', silver: '🥈', bronze: '🥉' }[st.medal];
+        bits.push(`<span class="rp-medal">${ico} ${st.medal.toUpperCase()}${st.newMedal ? ' — NEW!' : ''}</span>`);
+      }
+      if (extras && extras.bestLap > 5000) {
+        bits.push(`<span>LAP ${fmtTime(extras.bestLap)}${st && st.lapPB ? ' <b class="rp-pb">PB!</b>' : ''}</span>`);
+      }
+      if (extras && extras.xp > 0) {
+        bits.push(`<span class="rp-xp">+${extras.xp.toLocaleString()} XP</span>`);
+      }
+      if (extras && extras.leveled) {
+        bits.push(`<span class="rp-level">LEVEL UP → ${extras.level}</span>`);
+      }
+      box.innerHTML = bits.join('<span class="rp-dot">·</span>');
+      box.classList.toggle('hidden', bits.length === 0);
+      // Count the XP up from zero — earning it should feel like earning it.
+      const xpEl = box.querySelector('.rp-xp');
+      if (xpEl && extras && extras.xp > 0) {
+        const total = extras.xp;
+        const t0 = performance.now();
+        const tick = () => {
+          const k = Math.min(1, (performance.now() - t0) / 1200);
+          const eased = 1 - Math.pow(1 - k, 3);
+          xpEl.textContent = `+${Math.round(total * eased).toLocaleString()} XP`;
+          if (k < 1 && !document.getElementById('results').classList.contains('hidden')) {
+            requestAnimationFrame(tick);
+          }
+        };
+        requestAnimationFrame(tick);
+      }
+    }
     document.getElementById('results').classList.remove('hidden');
   }
 

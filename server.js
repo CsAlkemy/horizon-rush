@@ -13,8 +13,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { buildTrack, TRACKS, TOTAL_LAPS, GRID_SLOTS, wrapAngle } from './shared/track.js';
+import { buildTrack, TRACKS, TOTAL_LAPS, GRID_SLOTS } from './shared/track.js';
 import { stepCar } from './shared/physics.js';
+import { CAR } from './shared/physics.js';
+import { AI_ROSTER, makeAI, aiThink } from './shared/ai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4300);
@@ -96,21 +98,45 @@ const server = http.createServer((req, res) => {
   res.end('not found');
 });
 
-// ---------------------------------------------------------------- game state
-const AI_ROSTER = [
-  { name: 'RaptorSeven', color: 0xd7263d },
-  { name: 'NightFoxx', color: 0x23262b },
-  { name: 'SilvaGT', color: 0x2364d2 },
-  { name: 'TanakaRS', color: 0xf4f5f7 },
-  { name: 'BlueShift', color: 0x12b8a8 },
-  { name: 'CostaV12', color: 0xffb400 },
-  { name: 'DriftKing99', color: 0x7a3cf0 },
-  { name: 'SableStorm', color: 0x1f9d55 },
-  { name: 'TurboTuna', color: 0xff6a13 },
-  { name: 'FischerW', color: 0x8b93a1 },
-  { name: 'VeraLumen', color: 0xe8447c },
-];
+// ---------------------------------------------------------------- lap records
+// Best lap per player name per track, persisted to data/records.json so a LAN
+// server keeps its all-time boards across restarts. Loose name-based identity
+// is right for a LAN party; a public deployment would swap in real accounts.
+const DATA_DIR = path.join(__dirname, 'data');
+const REC_FILE = path.join(DATA_DIR, 'records.json');
+let records = {};
+try { records = JSON.parse(fs.readFileSync(REC_FILE, 'utf8')) || {}; } catch {}
+let recSaveTimer = null;
+function saveRecords() {
+  clearTimeout(recSaveTimer);
+  recSaveTimer = setTimeout(() => {
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(REC_FILE, JSON.stringify(records));
+    } catch (e) { console.warn('[records] save failed:', e.message); }
+  }, 500);
+}
+function recordLap(map, name, lapMs) {
+  lapMs = Math.round(lapMs);
+  if (!validMap(map)) return false;
+  // Physical floor: no lap can beat track length over max possible speed.
+  const minLap = Math.max(20000, tracks[map].L / (CAR.topSpeed * (CAR.nitroTop || 1)) * 1000);
+  if (!(lapMs > minLap) || lapMs > 600000) return false;
+  const list = records[map] || (records[map] = []);
+  const mine = list.find(r => r.name === name);
+  if (mine) {
+    if (lapMs >= mine.lap) return false;
+    mine.lap = lapMs; mine.date = Date.now();
+  } else {
+    list.push({ name, lap: lapMs, date: Date.now() });
+  }
+  list.sort((a, b) => a.lap - b.lap);
+  if (list.length > 10) list.length = 10;
+  saveRecords();
+  return true;
+}
 
+// ---------------------------------------------------------------- game state
 const MODES = ['bot', 'friends'];
 
 let nextId = 1;
@@ -134,25 +160,6 @@ function newPartyCode() {
   return 'X' + String(nextId % 900 + 100); // 31^4 codes exhausted — not on a LAN
 }
 function partyKey(p) { return p.party || ''; }
-
-function makeAI(count) {
-  return AI_ROSTER.slice(0, count).map((a, i) => ({
-    id: 'a' + (i + 1),
-    name: a.name,
-    color: a.color,
-    // Slower AI placed at the back of the AI pack, right in front of the humans.
-    skill: 0.95 - i * 0.055,
-    car: { x: 0, z: 0, h: 0, vx: 0, vz: 0, s: 0 },
-    lap: 0, // grid sits behind the line; first crossing starts lap 1
-    prevS: 0,
-    avoid: 0, slow: 1,   // eased traffic-avoidance state (see aiThink)
-    finished: false,
-    finishTime: 0,
-    // stab: drivatars drive on pure grip — their pace model assumes no
-    // power-drift, and a full-lock avoidance jink must not slide them.
-    input: { steer: 0, throttle: 0, brake: 0, hand: false, stab: true },
-  }));
-}
 
 function broadcast(msg) {
   const s = JSON.stringify(msg);
@@ -395,68 +402,25 @@ function standings(race) {
 }
 
 // ---------------------------------------------------------------- AI driving
-function aiThink(a, allCars, track) {
-  const car = a.car;
-  const sp = Math.hypot(car.vx, car.vz);
-  const look = 9 + sp * 0.55;
-  const p = track.point(car.s + look);
-  const offset = track.lineOffset(car.s + look);
-  const tx = p.x + p.nx * offset;
-  const tz = p.z + p.nz * offset;
-  const want = Math.atan2(tx - car.x, tz - car.z);
-  // steer > 0 means right, and a right turn is a DECREASE in heading, so the
-  // heading error is negated (see the sign notes in shared/physics.js).
-  let steer = Math.max(-1, Math.min(1, -wrapAngle(want - car.h) * 2.4));
-
-  // Pace is tuned so a competent human starting from the back of the grid can
-  // work through the field over three laps — the player's car tops out well
-  // above the quickest drivatar.
-  const latA = 9 + a.skill * 5.5;
-  const brakeDist = 12 + sp * sp / 42;
-  const cAhead = track.curvAheadMax(car.s, brakeDist);
-  const vCorner = Math.sqrt(latA / Math.max(1e-4, cAhead));
-  const vTop = 39 + a.skill * 13;
-  const target = Math.min(vTop, vCorner);
-
-  let throttle = 0, brake = 0;
-  if (sp < target - 1.5) throttle = 1;
-  else if (sp > target + 2.5) brake = Math.min(1, (sp - target) * 0.18);
-  else throttle = 0.5;
-
-  // Simple avoidance of the car directly ahead. The reaction is EASED rather
-  // than applied as a hard step: toggling ±0.25 steer per 30 Hz tick made an
-  // AI visibly vibrate exactly when a player drew alongside to overtake.
-  const [fx, fz] = [Math.sin(car.h), Math.cos(car.h)];
-  let avoidWant = 0, slowWant = 1;
-  for (const o of allCars) {
-    if (o.id === a.id) continue;
-    const dx = o.x - car.x, dz = o.z - car.z;
-    const ahead = dx * fx + dz * fz;
-    const side = dx * fz - dz * fx;
-    if (ahead > 0 && ahead < 11 && Math.abs(side) < 2.4) {
-      slowWant = 0.35;
-      // side > 0 puts the obstacle to our left, so ease right around it.
-      avoidWant = side > 0 ? 0.25 : -0.25;
-    }
-  }
-  a.avoid += (avoidWant - a.avoid) * 0.22;   // ~130 ms ease at 30 Hz
-  a.slow += (slowWant - a.slow) * 0.3;
-  a.input.steer = steer + a.avoid;
-  a.input.throttle = throttle * a.slow;
-  a.input.brake = brake;
-}
-
+// The drivatar brain lives in shared/ai.js so offline (in-browser) races use
+// the exact same field.
 const AI_DT = 1 / 30;
 setInterval(() => {
   for (const race of races.values()) {
     if (race.phase !== 'race') continue;
     const allCars = [...race.ai.map(a => ({ id: a.id, x: a.car.x, z: a.car.z }))];
+    // Leading human's progress feeds the drivatars' rubber-banding.
+    let humanProgress = null;
     for (const pid of race.members) {
       const p = players.get(pid);
-      if (p && p.state) allCars.push({ id: p.id, x: p.state.x, z: p.state.z });
+      if (p && p.state) {
+        allCars.push({ id: p.id, x: p.state.x, z: p.state.z });
+        const prog = (p.state.lap | 0) * race.track.L + (p.state.s || 0);
+        if (humanProgress === null || prog > humanProgress) humanProgress = prog;
+      }
     }
     for (const a of race.ai) {
-      aiThink(a, allCars, race.track);
+      aiThink(a, allCars, race.track, humanProgress);
       stepCar(a.car, a.input, AI_DT, race.track);
       // Lap counting on start/finish crossing.
       if (a.prevS > race.track.L * 0.9 && a.car.s < race.track.L * 0.1) {
@@ -490,7 +454,7 @@ setInterval(() => {
       cars.push({
         id: p.id, x: p.state.x, z: p.state.z, h: p.state.h,
         sp: p.state.sp, lap: p.state.lap, s: p.state.s, fin: p.finished,
-        lg: p.state.lg, bk: p.state.bk,
+        lg: p.state.lg, bk: p.state.bk, nt: p.state.nt,
       });
     }
     sendTo(race, {
@@ -610,7 +574,7 @@ wss.on('connection', (ws) => {
         p.state = {
           x: +m.x || 0, z: +m.z || 0, h: +m.h || 0,
           sp: +m.sp || 0, s: +m.s || 0, lap: m.lap | 0,
-          lg: m.lg ? 1 : 0, bk: m.bk ? 1 : 0,
+          lg: m.lg ? 1 : 0, bk: m.bk ? 1 : 0, nt: m.nt ? 1 : 0,
         };
         break;
       case 'horn':
@@ -622,7 +586,15 @@ wss.on('connection', (ws) => {
           p.finishTime = Date.now() - race.startAt;
           p.bestLap = +m.bestLap || 0;
           if (!race.firstFinishAt) race.firstFinishAt = Date.now();
+          if (p.bestLap && recordLap(race.trackId, p.name, p.bestLap)) {
+            sendTo(race, { t: 'record', map: race.trackId, name: p.name, lap: Math.round(p.bestLap) });
+          }
           sendTo(race, { t: 'finished', id, name: p.name, time: p.finishTime });
+        }
+        break;
+      case 'records':
+        if (validMap(m.map)) {
+          ws.send(JSON.stringify({ t: 'records', map: m.map, rows: (records[m.map] || []).slice(0, 5) }));
         }
         break;
     }

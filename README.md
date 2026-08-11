@@ -32,9 +32,13 @@ the menu and repaints as you choose, so you can see what you're driving before
 you commit to it.
 
 Pick a track — **Coastal Circuit** (seaside sweepers), **Alpine Ridge** (tight
-misty esses) or **Sunset Speedway** (flat-out desert) — the world behind the
-menu switches to it immediately. In a FRIENDS race, the first driver to hit
-READY picks the track for everyone.
+misty esses) or **Sunset Speedway** (flat-out desert) — each in **forward or
+reversed** direction, six layouts in all. The world behind the menu switches to
+your pick immediately. In a FRIENDS race, the first driver to hit READY picks
+the track for everyone.
+
+In a hurry? **⚡ QUICK RACE** on any step drops you straight onto the grid
+against the drivatars.
 
 Then pick who you're racing:
 
@@ -42,10 +46,40 @@ Then pick who you're racing:
 | --- | --- | --- |
 | **BOTS** | You plus eleven drivatars | The moment *you* hit READY |
 | **FRIENDS** | Only the drivers on your LAN, no AI | Everyone in your group is ready |
+| **TIME TRIAL** | Just you — and the ghost of your best lap | Instantly |
+| **CHAMPIONSHIP** | Three-race series vs the drivatars, F1-style points | Instantly |
+
+**TIME TRIAL** replays your fastest lap as a translucent ghost car that
+relaunches with you at every line crossing — beat it and the new lap becomes
+the ghost. **CHAMPIONSHIP** runs Coastal → Alpine → Sunset (in your chosen
+direction) with points per finish; the series pays a big XP bonus. There's
+also a **📅 DAILY CHALLENGE** on the RACE step — a date-seeded track combo,
+same for everyone that day, with bonus XP for your first run. And the
+drivatars **rubber-band gently** (±6% of top speed, never their cornering), so
+the pack stays contested without ever being unbeatable.
+
+When a server is running it also keeps **track records** — the all-time top
+ten laps per circuit, persisted across restarts in `data/records.json` and
+shown on the TRACK step. Passing a rival calls it out in the skill feed (and
+pays XP); losing a place gets called too.
 
 **BOTS** never waits for anyone, so a friend who is still choosing a colour — or a
 browser tab someone forgot about — can't hold you up. Humans start at the back of
-the AI grid so there's a field to work through.
+the AI grid so there's a field to work through. BOTS races don't even need the
+server to be reachable — the drivatars and the whole race run in your browser,
+so the game works fully offline (or statically hosted); the same code drives
+them either way.
+
+## Progression
+
+Banked skill chains are **XP**. XP levels you up, and levels unlock the last
+six paint colours. Each track direction keeps its own **best lap** and a
+**medal** (🥉 🥈 🥇) against per-track target times — they show on the track
+cards in the lobby and on the results screen, along with the race's XP tally.
+Everything is stored locally in your browser.
+
+On phones and tablets, on-screen **touch controls** appear automatically while
+driving: steer on the left, GAS/BRAKE/DRIFT/NITRO on the right.
 
 **FRIENDS** is the shared race, and everyone in the lobby is visible the moment
 their page loads — nobody has to press READY just to be seen. By default your
@@ -81,6 +115,7 @@ If your friend can't connect:
 | Throttle / brake | `W` / `S` or `↑` / `↓` |
 | Steer | `A` / `D` or `←` / `→` |
 | Handbrake (drift) | `Space` |
+| Nitro boost | `Shift` (hold) |
 | Camera — chase / driver / hood | `C` |
 | Horn | `H` (hold) |
 | Headlights | `L` |
@@ -88,7 +123,13 @@ If your friend can't connect:
 | Mute | `M` |
 
 Gamepads work too: left stick steers, triggers are throttle and brake, `A`
-is the handbrake — and braking, sand and impacts rumble the pad.
+is the handbrake, `X` is nitro — and braking, sand and impacts rumble the pad.
+
+**Nitro**: glowing amber canisters float over the road (amber dots on the
+minimap). Drive through one to fill part of your nitro meter (shown above the
+speedo), then hold `Shift` to burn it for a hard shove and a higher top speed.
+Collected canisters respawn after ~15 seconds, and grabbing one feeds the
+skill chain.
 
 Two ways to slide: the handbrake is a **hard anchor** — it sheds real speed
 while kicking the tail loose for hairpins — and **holding full steering at

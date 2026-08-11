@@ -5,10 +5,11 @@ import { buildTrack, TOTAL_LAPS, wrapAngle, ROAD_Y } from '/shared/track.js';
 import { stepCar, CAR } from '/shared/physics.js';
 import { buildWorld } from './world.js';
 import { createCar, animateCar, setLights, setPaint, carTemplateConfig } from './car.js';
-import { HUD, toast } from './hud.js';
+import { HUD, toast, fmtTime } from './hud.js';
 import { readInput, updateHaptics } from './input.js';
-import { updateEngine, sfx, setHorn, setMusicScene } from './audio.js';
+import { updateEngine, sfx, setHorn, setNitro, setMusicScene } from './audio.js';
 import { DriftFX } from './fx.js';
+import { addXP, recordRace } from './progress.js';
 
 // C cycles these. Cockpit sits at the driver's eye point; hood is on the bonnet.
 const CAM_MODES = ['chase', 'cockpit', 'hood'];
@@ -16,6 +17,14 @@ const CAM_LABELS = { chase: 'CHASE CAM', cockpit: 'DRIVER VIEW', hood: 'HOOD CAM
 
 const MPH = 2.23694;
 const YD = 1.09361;
+
+// Nitro tuning: the meter is 0..100, a pickup adds a chunk, holding SHIFT
+// burns it. A full meter is ~3 s of boost.
+const NITRO_MAX = 100;
+const NITRO_PICKUP = 45;
+const NITRO_BURN = 32;        // meter units per second while boosting
+const NITRO_RESPAWN = 15;     // seconds before a collected canister returns
+const NITRO_GRAB_R = 2.6;     // pickup collection radius, meters
 
 export class Game {
   constructor(canvas, quality, treeModel = null, mapId = 'coastal') {
@@ -62,13 +71,30 @@ export class Game {
     this.lapStart = 0;
     this.bestLap = 0;
 
-    // skills
+    // nitro
+    this.nitro = 0;          // meter, 0..NITRO_MAX
+    this.nitroOn = false;    // burning this frame
+    this.pickups = [];
+    this.buildPickups();
+
+    // skills + progression
     this.chainPts = 0; this.chainMult = 1; this.lastSkill = 0;
     this.driftPts = 0; this.driftIdle = 0;
     this.draftPts = 0; this.drafting = false;
     this.missCooldown = new Map();
     this.cleanSinceGate = true;
     this.gateIdx = 0;
+    this.raceXP = 0;         // banked skill chains + finish/medal bonuses
+    this.finishStats = null; // PB/medal outcome, shown on the results screen
+
+    // Time-trial ghost: your best recorded lap replayed as a translucent car.
+    this.ghostData = null;   // { lapMs, samples: [[tRel, x, z, h], ...] }
+    this.ghostBuf = [];      // pose samples for the lap in progress
+    this.ghostVisual = null;
+    this.ghostTimer = 0;
+    this._lastPos = -1;      // for overtake callouts
+    this._lastOvertakeAt = 0;
+    this._lastLostAt = 0;
 
     this.camMode = localStorage.getItem('hr_cam') || 'chase';
     if (!CAM_MODES.includes(this.camMode)) this.camMode = 'chase';
@@ -143,11 +169,28 @@ export class Game {
       this.hud.banner('GO!', 1200);
       sfx.go();
     });
-    net.on('snap', (m) => { if (inRace()) this.order = m.order; });
+    net.on('snap', (m) => {
+      if (!inRace()) return;
+      this.order = m.order;
+      this.checkOvertakes();
+    });
     net.on('results', (m) => {
       if (!inRace()) return;
       this.phase = 'results';
-      this.hud.results(m.rows, this.myId);
+      // Bank this race's XP exactly once, when the results land.
+      let gain = null;
+      if (this.raceXP > 0) {
+        gain = addXP(this.raceXP);
+        this.hud.results(m.rows, this.myId, {
+          xp: this.raceXP, level: gain.level, leveled: gain.leveled,
+          stats: this.finishStats, bestLap: this.bestLap,
+        });
+        this.raceXP = 0;
+      } else {
+        this.hud.results(m.rows, this.myId, this.finishStats
+          ? { xp: 0, stats: this.finishStats, bestLap: this.bestLap } : null);
+      }
+      if (this.onProgress) this.onProgress();   // lobby refreshes level/unlocks
       setMusicScene('lobby');   // radio back up over the podium
       sfx.panel();
     });
@@ -297,6 +340,95 @@ export class Game {
     }
   }
 
+  // ---------------------------------------------------------------- nitro pickups
+  // Glowing canisters spaced around the lap, offset across the road in a
+  // repeating left/center/right pattern so grabbing one costs a small line
+  // change. Purely client-side: each driver collects their own — an arcade
+  // pickup, not a contested resource — so the server needs no knowledge of it.
+  buildPickups() {
+    this.disposePickups();
+    this.pickupRoot = new THREE.Group();
+    this.scene.add(this.pickupRoot);
+    this.pickups = [];
+
+    const coreGeo = new THREE.IcosahedronGeometry(0.42, 0);
+    const coreMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2016, emissive: 0xffb400, emissiveIntensity: 2.2, roughness: 0.35,
+    });
+    const ringGeo = new THREE.TorusGeometry(0.78, 0.055, 8, 26);
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: 0x201408, emissive: 0xff6a13, emissiveIntensity: 1.6, roughness: 0.4,
+    });
+    // Kept so dispose can free them; the meshes all share these four objects.
+    this._pickupAssets = [coreGeo, coreMat, ringGeo, ringMat];
+
+    const L = this.track.L;
+    const count = Math.max(6, Math.min(12, Math.round(L / 260)));
+    for (let k = 0; k < count; k++) {
+      // Offset from the checkpoint spacing so a canister never sits in a gate.
+      const s = ((k + 0.5) / count) * L;
+      const p = this.track.point(s);
+      const lat = [(-3.1), 0, 3.1][k % 3];
+      const x = p.x + p.nx * lat, z = p.z + p.nz * lat;
+      const g = new THREE.Group();
+      const core = new THREE.Mesh(coreGeo, coreMat);
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = Math.PI / 2 - 0.35;
+      g.add(core, ring);
+      g.position.set(x, ROAD_Y + 1.05, z);
+      this.pickupRoot.add(g);
+      this.pickups.push({ x, z, mesh: g, ring, active: true, respawn: 0, phase: k * 1.7 });
+    }
+  }
+
+  disposePickups() {
+    if (this.pickupRoot) {
+      this.scene.remove(this.pickupRoot);
+      for (const a of this._pickupAssets || []) a.dispose();
+      this._pickupAssets = null;
+      this.pickupRoot = null;
+    }
+    this.pickups = [];
+  }
+
+  resetPickups() {
+    for (const p of this.pickups) { p.active = true; p.respawn = 0; p.mesh.visible = true; }
+  }
+
+  // Spin/bob the canisters, tick respawns, and (while racing) collect any the
+  // car passed over this frame. Movement is checked against the segment the
+  // car covered, not just its end point, so a top-speed pass on a slow frame
+  // cannot tunnel through the collection radius.
+  updatePickups(dt, now, racing, px, pz) {
+    const t = now * 0.001;
+    for (const p of this.pickups) {
+      if (!p.active) {
+        p.respawn -= dt;
+        if (p.respawn <= 0) { p.active = true; p.mesh.visible = true; }
+        continue;
+      }
+      p.mesh.position.y = ROAD_Y + 1.05 + Math.sin(t * 2.2 + p.phase) * 0.16;
+      p.mesh.rotation.y = t * 1.8 + p.phase;
+      p.ring.rotation.z = t * 2.6;
+
+      if (!racing) continue;
+      // Distance from the pickup to the segment (px,pz) -> car.
+      const dx = this.car.x - px, dz = this.car.z - pz;
+      const wx = p.x - px, wz = p.z - pz;
+      const len2 = dx * dx + dz * dz;
+      const u = len2 > 1e-9 ? Math.max(0, Math.min(1, (wx * dx + wz * dz) / len2)) : 0;
+      const ex = wx - dx * u, ez = wz - dz * u;
+      if (ex * ex + ez * ez < NITRO_GRAB_R * NITRO_GRAB_R) {
+        p.active = false;
+        p.respawn = NITRO_RESPAWN;
+        p.mesh.visible = false;
+        this.nitro = Math.min(NITRO_MAX, this.nitro + NITRO_PICKUP);
+        this.addSkill('Nitro Grab', 25);
+        sfx.nitro();
+      }
+    }
+  }
+
   // Swap the whole circuit: track math, world scenery, minimap, parked car.
   // Cheap no-op when the id already matches (the common case on 'grid').
   setTrack(id) {
@@ -305,6 +437,7 @@ export class Game {
     this.fx.clearMarks();   // old circuit's rubber makes no sense here
     this.world.dispose();
     this.world = buildWorld(this.scene, this.renderer, this.track, this.quality, this.treeModel);
+    this.buildPickups();
     this.hud.setTrack(this.track);
     const g = this.track.gridSlot(11);
     this.car = { x: g.x, z: g.z, h: g.h, vx: 0, vz: 0, s: g.s };
@@ -331,6 +464,22 @@ export class Game {
     this.chainPts = 0; this.chainMult = 1;
     this.driftPts = 0; this.draftPts = 0;
     this.gateIdx = 0; this.cleanSinceGate = true;
+    this.raceXP = 0; this.finishStats = null;
+    this.nitro = 0; this.nitroOn = false;
+    this.resetPickups();
+    // Time trial: load this circuit's ghost and spawn its translucent car.
+    this._lastPos = -1;
+    this.ghostBuf = [];
+    this.ghostTimer = 0;
+    if (this.raceKind === 'trial') {
+      this.ghostData = null;
+      try { this.ghostData = JSON.parse(localStorage.getItem('hr_ghost_' + this.track.id)); } catch {}
+      if (this.ghostData && !(this.ghostData.lapMs > 5000 && Array.isArray(this.ghostData.samples))) this.ghostData = null;
+      this.removeGhostVisual();
+      this.ensureGhostVisual();
+    } else {
+      this.removeGhostVisual();
+    }
     this.net.resetBuffers();
     for (const slot of m.slots) {
       if (slot.id === this.myId) {
@@ -343,7 +492,8 @@ export class Game {
       }
     }
     this.hud.show();
-    this.hud.banner(`${this.track.def.name.toUpperCase()} — ${this.laps} LAPS`, 1800);
+    const trackName = this.track.def.name.toUpperCase() + (this.track.def.reversed ? ' ⟲ REVERSED' : '');
+    this.hud.banner(`${trackName} — ${this.laps} LAPS`, 1800);
     setMusicScene('race');   // duck the radio under the engines
     sfx.gridUp();
   }
@@ -367,11 +517,92 @@ export class Game {
     this.syncPose();
     this.chainPts = 0; this.chainMult = 1;
     this.hud.chain(0, 1);
+    this.nitro = 0; this.nitroOn = false;
+    setNitro(false);
+    this.resetPickups();
+    this.removeGhostVisual();
+    this.ghostBuf = [];
   }
 
   posOf(id) {
     const i = this.order.indexOf(id);
     return i < 0 ? '' : 'P' + (i + 1);
+  }
+
+  // ---------------------------------------------------------------- ghost
+  // The time-trial ghost is your fastest recorded lap replayed in world space,
+  // clocked off lapStart so it relaunches with you on every crossing.
+  ensureGhostVisual() {
+    if (this.ghostVisual || !this.ghostData) return;
+    const c = createCar(0x9fd8ff, { spoiler: true, kind: 'ghost' });
+    const fade = (m) => {
+      const f = m.clone();
+      f.transparent = true;
+      f.opacity = Math.min(f.opacity ?? 1, 0.26);
+      f.depthWrite = false;
+      return f;
+    };
+    c.group.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = false;
+        o.material = Array.isArray(o.material) ? o.material.map(fade) : fade(o.material);
+      }
+    });
+    c.group.visible = false;
+    this.scene.add(c.group);
+    this.ghostVisual = c;
+  }
+
+  removeGhostVisual() {
+    if (!this.ghostVisual) return;
+    this.scene.remove(this.ghostVisual.group);
+    this.ghostVisual = null;
+  }
+
+  updateGhost(now, dt) {
+    const g = this.ghostVisual;
+    if (!g) return;
+    const d = this.ghostData;
+    const live = this.raceKind === 'trial' && this.phase === 'race' && !this.finished && d;
+    const t = now - this.lapStart;
+    if (!live || t < 0 || t > d.lapMs || d.samples.length < 2) {
+      g.group.visible = false;   // ghost already "finished" its lap — let it rest
+      return;
+    }
+    const s = d.samples;
+    let lo = 0, hi = s.length - 1;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1;
+      if (s[mid][0] <= t) lo = mid; else hi = mid;
+    }
+    const a = s[lo], b = s[hi];
+    const k = Math.max(0, Math.min(1, (t - a[0]) / Math.max(1, b[0] - a[0])));
+    g.group.visible = true;
+    g.group.position.set(a[1] + (b[1] - a[1]) * k, ROAD_Y, a[2] + (b[2] - a[2]) * k);
+    g.group.rotation.y = a[3] + wrapAngle(b[3] - a[3]) * k;
+    const sp = Math.hypot(b[1] - a[1], b[2] - a[2]) / Math.max(0.001, (b[0] - a[0]) / 1000);
+    animateCar(g, sp, 0, 0, dt);
+  }
+
+  // ---------------------------------------------------------------- rivals
+  // Position-change callouts, driven from server standings. Overtakes feed the
+  // skill chain (they're XP); losing a place gets a subdued feed line.
+  checkOvertakes() {
+    if (this.phase !== 'race' || this.finished || this.raceKind === 'trial') return;
+    const pos = this.order.indexOf(this.myId);
+    if (pos < 0) return;
+    const now = performance.now();
+    if (this._lastPos < 0 || now - this.t0 < 5000) { this._lastPos = pos; return; }
+    if (pos < this._lastPos && now - this._lastOvertakeAt > 2500) {
+      this._lastOvertakeAt = now;
+      const v = this.visuals.get(this.order[pos + 1]);
+      this.addSkill(v ? `Passed ${v.name}` : 'Overtake', 60);
+    } else if (pos > this._lastPos && now - this._lastLostAt > 4000) {
+      this._lastLostAt = now;
+      const v = this.visuals.get(this.order[pos - 1]);
+      if (v) this.hud.skill(`${v.name} took P${pos}`, 0, 'bad');
+    }
+    this._lastPos = pos;
   }
 
   // ---------------------------------------------------------------- skills
@@ -439,9 +670,10 @@ export class Game {
       sfx.scrape();
     }
 
-    // bank chain
+    // bank chain — banked points are this race's XP
     if (this.chainPts > 0 && now - this.lastSkill > 4000) {
       const xp = Math.round(this.chainPts * this.chainMult);
+      this.raceXP += xp;
       this.hud.skill(xp > 600 ? 'ULTIMATE SKILL CHAIN!' : 'Skill Chain', xp, 'big');
       sfx.bank();
       this.chainPts = 0; this.chainMult = 1;
@@ -455,8 +687,28 @@ export class Game {
     if (this.prevS > L * 0.9 && this.car.s < L * 0.1 && this.phase === 'race') {
       const lapTime = now - this.lapStart;
       this.lapStart = now;
-      if (this.lap > 0 && lapTime > 5000) {
+      // Physical floor for a valid lap: you cannot lap faster than track
+      // length over the car's maximum possible speed (nitro included). This
+      // keeps teleports/resets from ever minting an impossible PB or ghost.
+      const minLap = Math.max(5000, (L / (CAR.topSpeed * (CAR.nitroTop || 1))) * 1000);
+      if (this.lap > 0 && lapTime > minLap) {
         if (!this.bestLap || lapTime < this.bestLap) this.bestLap = lapTime;
+      }
+      // Time trial: a completed lap that beats the stored ghost BECOMES the
+      // ghost, and every crossing restarts both the recording buffer and the
+      // ghost's replay clock (it runs on lapStart).
+      if (this.raceKind === 'trial') {
+        if (this.lap > 0 && lapTime > minLap) {
+          const beat = !this.ghostData || Math.round(lapTime) < this.ghostData.lapMs;
+          if (beat && this.ghostBuf.length > 10) {
+            this.ghostData = { lapMs: Math.round(lapTime), samples: this.ghostBuf };
+            try { localStorage.setItem('hr_ghost_' + this.track.id, JSON.stringify(this.ghostData)); } catch {}
+            this.ensureGhostVisual();
+          }
+          this.hud.banner(`${beat ? '👻 NEW GHOST — ' : ''}LAP ${fmtTime(lapTime)}`, 1800);
+        }
+        this.ghostBuf = [];
+        this.ghostTimer = 0;
       }
       this.lap++;
       if (this.lap > this.laps && !this.finished) {
@@ -464,6 +716,17 @@ export class Game {
         sfx.finish();
         const p = this.order.indexOf(this.myId);
         this.hud.banner(`FINISHED ${p >= 0 ? 'P' + (p + 1) : ''}`, 5000);
+        // Progression: finish bonus by position, then PBs and medals. Any
+        // still-open skill chain banks too — crossing the line shouldn't eat it.
+        if (this.chainPts > 0) {
+          this.raceXP += Math.round(this.chainPts * this.chainMult);
+          this.chainPts = 0; this.chainMult = 1;
+        }
+        const pos = p >= 0 ? p + 1 : this.order.length || 12;
+        this.raceXP += Math.max(40, (13 - pos) * 60);
+        this.finishStats = recordRace(
+          this.track.id, Math.round(this.bestLap), Math.round(now - this.t0), this.track.def.medals);
+        this.raceXP += this.finishStats.medalXP;
         this.net.send({ t: 'finish', bestLap: Math.round(this.bestLap) });
       } else if (this.lap === this.laps) {
         this.hud.banner('FINAL LAP', 2200);
@@ -571,6 +834,13 @@ export class Game {
     }
     input.draft = this.drafting;
 
+    // Nitro only burns while racing and with fuel in the meter; the raw key
+    // state is replaced by the gated result before physics sees it.
+    this.nitroOn = racing && !!input.nitro && this.nitro > 0;
+    input.nitro = this.nitroOn ? 1 : 0;
+    if (this.nitroOn) this.nitro = Math.max(0, this.nitro - NITRO_BURN * dt);
+    setNitro(this.nitroOn);
+
     if (input.camCycle) {
       this.setCamMode(CAM_MODES[(CAM_MODES.indexOf(this.camMode) + 1) % CAM_MODES.length]);
     }
@@ -595,6 +865,7 @@ export class Game {
 
     // fixed-step local physics
     let ev = { impact: 0, slip: 0 };
+    const prePhysX = this.car.x, prePhysZ = this.car.z;   // for pickup sweep
     if (this.phase === 'race' || this.phase === 'results') {
       this.acc += dt;
       const step = 1 / 120;
@@ -618,6 +889,10 @@ export class Game {
       this._viewPose.h = this.car.h;
     }
 
+    // nitro canisters: animate always (they're visible from the lobby
+    // turntable too), collect only while racing
+    this.updatePickups(dt, now, racing, prePhysX, prePhysZ);
+
     // interpolate remote cars
     const others = [];
     for (const [id, v] of this.visuals) {
@@ -638,11 +913,18 @@ export class Game {
           setLights(v.car, v.lightsOn);
         }
         v.braking = !!s.bk;
+        v.boosting = !!s.nt;
       }
       v.car.group.position.set(v.x, ROAD_Y, v.z);
       v.car.group.rotation.y = v.h;
       animateCar(v.car, v.sp, 0, v.braking ? 1 : 0, dt);
       v.car.group.visible = v.shown;
+      // A rival mid-burn trails the same exhaust plume you make (see below).
+      if (v.shown && v.boosting && Math.random() < 0.7) {
+        const bfx = Math.sin(v.h), bfz = Math.cos(v.h);
+        this.fx.emitSmoke(v.x - bfx * 2.2, ROAD_Y + 0.35, v.z - bfz * 2.2,
+          -bfx * v.sp * 0.22, 0.5, -bfz * v.sp * 0.22, 0.7, false);
+      }
       if (v.shown) {
         // Velocity vector too, so contact can trade relative rather than
         // absolute speed (see collideOthers).
@@ -651,6 +933,21 @@ export class Game {
           vx: Math.sin(v.h) * v.sp, vz: Math.cos(v.h) * v.sp,
         });
       }
+    }
+
+    // Time-trial ghost: record my lap (sim pose, ~15 Hz), replay the best one.
+    if (this.raceKind === 'trial') {
+      if (racing) {
+        this.ghostTimer += dt;
+        if (this.ghostTimer >= 0.066 && this.ghostBuf.length < 2600) {
+          this.ghostTimer = 0;
+          this.ghostBuf.push([
+            Math.round(now - this.lapStart),
+            +this.car.x.toFixed(2), +this.car.z.toFixed(2), +this.car.h.toFixed(3),
+          ]);
+        }
+      }
+      this.updateGhost(now, dt);
     }
 
     if (racing) {
@@ -709,6 +1006,11 @@ export class Game {
             0.8 + Math.min(1, slipAbs * 2), dusty);
         }
       }
+      // nitro burn: a dense plume kicked out of the exhaust
+      if (this.nitroOn && Math.random() < 0.9) {
+        this.fx.emitSmoke(vp.x - hfx * 2.2, ROAD_Y + 0.35, vp.z - hfz * 2.2,
+          -this.car.vx * 0.22, 0.5, -this.car.vz * 0.22, 0.7, false);
+      }
     } else {
       this.fx.skid('r-1', 0, 0, false);
       this.fx.skid('r1', 0, 0, false);
@@ -731,6 +1033,7 @@ export class Game {
         sp: +speed.toFixed(1), s: +this.car.s.toFixed(1), lap: this.lap,
         lg: this.lightsOn ? 1 : 0,
         bk: input.brake > 0.12 ? 1 : 0,
+        nt: this.nitroOn ? 1 : 0,
       });
     }
 
@@ -849,7 +1152,10 @@ export class Game {
     // Wide from inside: a narrow FOV in a cockpit makes the dash dominate and
     // hides the road. 82 keeps the car framing but shows the track ahead.
     const baseFov = this.camMode === 'cockpit' ? 82 : this.camMode === 'hood' ? 72 : 62;
-    const wantFov = baseFov + Math.min(1, speed / CAR.topSpeed) * (this.camMode === 'chase' ? 12 : 8);
+    // The nitro FOV kick is most of what makes the boost FEEL fast — the fov
+    // lerp below eases it in and out.
+    const wantFov = baseFov + Math.min(1, speed / CAR.topSpeed) * (this.camMode === 'chase' ? 12 : 8)
+      + (this.nitroOn ? 9 : 0);
     cam.fov += (wantFov - cam.fov) * Math.min(1, dt * 4);
     // Near plane must come in for interior views or the dash clips away.
     const wantNear = this.camMode === 'chase' ? 0.5 : 0.12;
@@ -908,10 +1214,11 @@ export class Game {
       lap: Math.max(1, this.lap), laps: this.laps,
       cpYd, cpScreenX,
     });
+    this.hud.nitro(this.nitro / NITRO_MAX, this.nitroOn);
 
     // minimap + plates (the minimap rotates with the car — feed it the same
     // interpolated pose the camera uses so it doesn't tick at physics rate)
-    this.hud.minimap(this._viewPose, others);
+    this.hud.minimap(this._viewPose, others, this.pickups);
     for (const o of others) {
       const i = this.order.indexOf(o.id);
       this.hud.ensurePlate(o.id, o.name, i >= 0 ? i + 1 : '·', o.human);

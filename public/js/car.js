@@ -64,6 +64,7 @@ function makeContactShadow(length = 4.4, width = 2.0) {
 // human cars keeps the frame rate up with a full twelve-car grid.
 function templateApplies(kind) {
   if (!template) return false;
+  if (kind === 'ghost') return false;   // ghosts use the light procedural body
   switch (template.cfg.applyTo || 'humans') {
     case 'all': return true;
     case 'player': return kind === 'player';

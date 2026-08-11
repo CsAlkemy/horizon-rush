@@ -428,11 +428,37 @@ export function setHorn(on) {
   h.gain.gain.setTargetAtTime(on ? 0.22 : 0, ctx.currentTime, on ? 0.008 : 0.03);
 }
 
+// Nitro burn: a filtered noise whoosh that opens up while the boost is held,
+// built once like the horn and driven per-frame by setNitro.
+let nitroSnd = null;
+function nitroNodes() {
+  if (nitroSnd || !ctx || !noiseBuf) return nitroSnd;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf; src.loop = true; src.playbackRate.value = 1.5;
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 0.7;
+  const g = ctx.createGain(); g.gain.value = 0;
+  src.connect(bp); bp.connect(g); g.connect(master);
+  src.start();
+  nitroSnd = { gain: g, bp };
+  return nitroSnd;
+}
+
+// Called every frame with whether nitro is burning.
+export function setNitro(on) {
+  const n = nitroNodes();
+  if (!n || !ctx) return;
+  const t = ctx.currentTime;
+  n.gain.gain.setTargetAtTime(on ? 0.24 : 0, t, on ? 0.03 : 0.09);
+  n.bp.frequency.setTargetAtTime(on ? 2500 : 800, t, 0.14);
+}
+
 export const sfx = {
   count: () => blip(440, 0.14, 'square', 0.25),
   go: () => blip(880, 0.5, 'square', 0.3),
   checkpoint: () => { blip(700, 0.08, 'sine', 0.3); blip(1050, 0.12, 'sine', 0.3, 0.07); },
   skill: () => blip(1250, 0.1, 'triangle', 0.22),
+  nitro: () => { blip(920, 0.09, 'triangle', 0.3); blip(1380, 0.14, 'triangle', 0.3, 0.07); },
   bank: () => { blip(880, 0.1, 'triangle', 0.3); blip(1174, 0.1, 'triangle', 0.3, 0.08); blip(1568, 0.16, 'triangle', 0.3, 0.16); },
   lost: () => blip(190, 0.3, 'sawtooth', 0.25),
   finish: () => { blip(659, 0.12, 'triangle', 0.3); blip(784, 0.12, 'triangle', 0.3, 0.1); blip(988, 0.12, 'triangle', 0.3, 0.2); blip(1319, 0.3, 'triangle', 0.35, 0.3); },

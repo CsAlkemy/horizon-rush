@@ -1,11 +1,14 @@
 // Boot: lobby UI -> net -> game loop.
 import { Game } from './game.js';
 import { Net } from './net.js';
+import { LocalRace } from './offline.js';
 import { initAudio, sfx, setMusicOn, musicStatus } from './audio.js';
 import { toast } from './hud.js';
 import { loadCarTemplate, loadSceneryModel } from './carModels.js';
 import { setCarTemplate } from './car.js';
+import { bindTouchUI } from './input.js';
 import { TRACKS } from '/shared/track.js';
+import { getProgress, xpForLevel, paintUnlocked, paintLockLevel, pbFor, addXP } from './progress.js';
 
 // Opt-in glTF models. Absent -> procedural car / procedural trees.
 const [carTpl, treeModel] = await Promise.all([
@@ -19,14 +22,24 @@ const $ = (id) => document.getElementById(id);
 const PAINTS = [0xcfd2d6, 0xd7263d, 0x2364d2, 0xffb400, 0x1f9d55, 0x23262b, 0xf4f5f7, 0xff6a13, 0x7a3cf0, 0x12b8a8];
 let paint = Number(localStorage.getItem('hr_paint') || PAINTS[0]);
 if (!PAINTS.includes(paint)) paint = PAINTS[0];
+// A paint above the driver's level (e.g. progress was reset) falls back to stock.
+if (!paintUnlocked(PAINTS.indexOf(paint))) paint = PAINTS[0];
 
-const MODES = ['bot', 'friends'];
+// bot/friends are server modes; trial (solo vs the clock + your ghost) and
+// champ (three-race series) always run on the in-browser race engine.
+const MODES = ['bot', 'friends', 'trial', 'champ'];
 let mode = localStorage.getItem('hr_mode') || 'bot';
 if (!MODES.includes(mode)) mode = 'bot';
+// What the server should treat us as — it only knows bot/friends.
+const serverMode = () => (mode === 'friends' ? 'friends' : 'bot');
 
+// Track selection = base circuit + direction; `map` is the full id the game
+// and server use ('coastal' / 'coastal-r').
 const MAP_IDS = TRACKS.map(t => t.id);
 let map = localStorage.getItem('hr_map') || MAP_IDS[0];
 if (!MAP_IDS.includes(map)) map = MAP_IDS[0];
+let baseMap = map.endsWith('-r') ? map.slice(0, -2) : map;
+let dir = map.endsWith('-r') ? 'rev' : 'fwd';
 
 const quality = localStorage.getItem('hr_quality') || 'high';
 $('quality').value = quality;
@@ -43,9 +56,11 @@ $('musicSel').addEventListener('change', () => {
 
 $('nameInput').value = localStorage.getItem('hr_name') || '';
 
-// game + net
+// game + net + offline fallback (BOTS races run in-browser with no server)
 const game = new Game($('gl'), quality, treeModel, map);
 const net = new Net();
+const offline = new LocalRace(net);
+net.local = offline;
 game.attachNet(net);
 
 let joined = false;
@@ -61,22 +76,45 @@ function currentName() {
 // while you make them rather than only once the race starts.
 game.setIdentity(currentName(), paint);
 
-// paint swatches
-for (const c of PAINTS) {
-  const d = document.createElement('div');
-  d.className = 'swatch' + (c === paint ? ' sel' : '');
-  d.style.background = '#' + c.toString(16).padStart(6, '0');
-  d.addEventListener('click', () => {
-    paint = c;
-    localStorage.setItem('hr_paint', String(c));
-    document.querySelectorAll('.swatch').forEach(s => s.classList.remove('sel'));
-    d.classList.add('sel');
-    game.setIdentity(currentName(), paint);
-    if (joined) net.send({ t: 'name', name: currentName(), color: paint });
-    sfx.click();
+// paint swatches — locked ones show the level that opens them
+function buildSwatches() {
+  $('swatches').innerHTML = '';
+  PAINTS.forEach((c, i) => {
+    const d = document.createElement('div');
+    const unlocked = paintUnlocked(i);
+    d.className = 'swatch' + (c === paint ? ' sel' : '') + (unlocked ? '' : ' locked');
+    d.style.background = '#' + c.toString(16).padStart(6, '0');
+    if (!unlocked) d.innerHTML = `<span class="swatch-lock">${paintLockLevel(i)}</span>`;
+    d.addEventListener('click', () => {
+      if (!unlocked) {
+        toast(`🔒 Unlocks at level ${paintLockLevel(i)} — bank skill chains to level up`);
+        return;
+      }
+      paint = c;
+      localStorage.setItem('hr_paint', String(c));
+      document.querySelectorAll('.swatch').forEach(s => s.classList.remove('sel'));
+      d.classList.add('sel');
+      game.setIdentity(currentName(), paint);
+      if (joined) net.send({ t: 'name', name: currentName(), color: paint });
+      sfx.click();
+    });
+    $('swatches').appendChild(d);
   });
-  $('swatches').appendChild(d);
 }
+buildSwatches();
+
+// driver level chip (step 1)
+function renderDriver() {
+  const p = getProgress();
+  const cur = xpForLevel(p.level), next = xpForLevel(p.level + 1);
+  const frac = Math.min(1, (p.xp - cur) / Math.max(1, next - cur));
+  $('levelChip').innerHTML = `
+    <span class="lvl-num">LEVEL ${p.level}</span>
+    <span class="lvl-xp">${p.xp.toLocaleString()} XP</span>
+    <div class="lvl-bar"><div style="width:${(frac * 100).toFixed(0)}%"></div></div>
+    <span class="lvl-next">next: ${next.toLocaleString()}</span>`;
+}
+renderDriver();
 
 $('nameInput').addEventListener('input', () => {
   game.setIdentity(currentName(), paint);
@@ -133,29 +171,74 @@ function trackThumb(t, w = 168, h = 84) {
   return c;
 }
 
-for (const t of TRACKS) {
+// One card per base circuit; a FORWARD/REVERSED toggle below picks direction.
+const MEDAL_ICO = { gold: '🥇', silver: '🥈', bronze: '🥉' };
+function applyMap({ send = true } = {}) {
+  map = baseMap + (dir === 'rev' ? '-r' : '');
+  localStorage.setItem('hr_map', map);
+  for (const x of document.querySelectorAll('#mapSeg [data-map]')) {
+    x.classList.toggle('sel', x.dataset.map === baseMap);
+  }
+  for (const d of document.querySelectorAll('#dirSeg [data-dir]')) {
+    d.classList.toggle('sel', d.dataset.dir === dir);
+  }
+  game.setTrack(map);   // the lobby turntable moves to the chosen circuit
+  if (send && joined) net.send({ t: 'map', map });
+  renderTrackBadges();
+  requestRecords();
+}
+
+// PB + medal badge per card, for the currently selected direction.
+function renderTrackBadges() {
+  for (const card of document.querySelectorAll('#mapSeg [data-map]')) {
+    const id = card.dataset.map + (dir === 'rev' ? '-r' : '');
+    const pb = pbFor(id);
+    const badge = card.querySelector('.mc-badge');
+    if (!badge) continue;
+    if (pb && pb.lap) {
+      badge.textContent = `${pb.medal ? MEDAL_ICO[pb.medal] + ' ' : ''}${fmtLap(pb.lap)}`;
+      badge.classList.remove('empty');
+    } else {
+      badge.textContent = 'NO LAP SET';
+      badge.classList.add('empty');
+    }
+  }
+}
+function fmtLap(ms) {
+  const m = Math.floor(ms / 60000), s = ((ms % 60000) / 1000).toFixed(1);
+  return `${m}:${s.padStart(4, '0')}`;
+}
+
+for (const t of TRACKS.filter(x => !x.reversed)) {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'map-card' + (t.id === map ? ' sel' : '');
+  b.className = 'map-card' + (t.id === baseMap ? ' sel' : '');
   b.dataset.map = t.id;
   b.appendChild(trackThumb(t));
   const meta = document.createElement('span');
   meta.className = 'mc-meta';
-  meta.innerHTML = `<span class="mc-title">${t.name.toUpperCase()}</span><span class="mc-sub">${t.tagline}</span>`;
+  meta.innerHTML = `<span class="mc-title">${t.name.toUpperCase()}</span><span class="mc-sub">${t.tagline}</span><span class="mc-badge empty">NO LAP SET</span>`;
   b.appendChild(meta);
   b.addEventListener('click', () => {
-    if (map === t.id) return;
-    map = t.id;
-    localStorage.setItem('hr_map', map);
-    for (const x of document.querySelectorAll('#mapSeg [data-map]')) {
-      x.classList.toggle('sel', x.dataset.map === map);
-    }
-    game.setTrack(map);   // the lobby turntable moves to the chosen circuit
-    if (joined) net.send({ t: 'map', map });
+    if (baseMap === t.id) return;
+    baseMap = t.id;
+    applyMap();
     sfx.click();
   });
   $('mapSeg').appendChild(b);
 }
+for (const d of document.querySelectorAll('#dirSeg [data-dir]')) {
+  d.addEventListener('click', () => {
+    if (dir === d.dataset.dir) return;
+    dir = d.dataset.dir;
+    applyMap();
+    sfx.click();
+  });
+}
+applyMap({ send: false });
+
+// Lobby refresh after a race banks XP: level chip, unlocks, PBs.
+game.onProgress = () => { renderDriver(); buildSwatches(); renderTrackBadges(); };
 
 // ---------------------------------------------------------------- opponents
 function paintModeSeg() {
@@ -173,7 +256,7 @@ for (const b of document.querySelectorAll('#modeSeg [data-mode]')) {
     sfx.click();
     // Switching opponents un-arms you, so you always confirm the mode you race.
     if (armed) { armed = false; disarmButton(); }
-    if (joined) net.send({ t: 'mode', mode });
+    if (joined) net.send({ t: 'mode', mode: serverMode() });
     renderStatus();
   });
 }
@@ -187,10 +270,14 @@ let step = 1;
 function renderSummary() {
   const esc = (s) => String(s).replace(/[<>&]/g, '');
   const t = TRACKS.find(x => x.id === map) || TRACKS[0];
-  const rivals = mode === 'bot' ? '🤖 BOTS' : party ? `👥 PARTY ${party}` : '👥 OPEN LAN';
+  const rivals =
+    mode === 'bot' ? '🤖 BOTS' :
+    mode === 'trial' ? '⏱ TIME TRIAL' :
+    mode === 'champ' ? '🏆 CHAMPIONSHIP' :
+    party ? `👥 PARTY ${party}` : '👥 OPEN LAN';
   $('summaryChips').innerHTML = `
     <button type="button" class="chip" data-step="1"><span class="chip-dot" style="background:#${paint.toString(16).padStart(6, '0')}"></span>${esc(currentName())}</button>
-    <button type="button" class="chip" data-step="2">${esc(t.name.toUpperCase())}</button>
+    <button type="button" class="chip" data-step="2">${esc(t.name.toUpperCase())}${t.reversed ? ' ⟲' : ''}</button>
     <button type="button" class="chip" data-step="3">${rivals}</button>`;
   for (const c of $('summaryChips').querySelectorAll('.chip')) {
     c.addEventListener('click', () => { showStep(+c.dataset.step); sfx.click(); });
@@ -206,6 +293,7 @@ function showStep(n) {
   }
   $('stepBack').classList.toggle('hidden', step === 1);
   $('stepNext').classList.toggle('hidden', step === 4);
+  $('quickBtn').classList.toggle('hidden', step === 4);
   if (step === 4) renderSummary();
 }
 $('stepNext').addEventListener('click', () => { showStep(step + 1); sfx.click(); });
@@ -305,20 +393,28 @@ function disarmButton() {
 function armButton() {
   $('readyBtn').disabled = true;
   $('readyBtn').classList.add('armed');
-  $('readyBtn').textContent = mode === 'bot'
-    ? 'STARTING…'
-    : 'READY — WAITING FOR DRIVERS…';
+  $('readyBtn').textContent = mode === 'friends'
+    ? 'READY — WAITING FOR DRIVERS…'
+    : 'STARTING…';
 }
 
 // One place decides what the panel says, from the server's lobby state.
 function renderStatus() {
   const el = $('lobbyStatus');
-  if (!net.connected) { el.textContent = 'Disconnected — is the server running? (npm start)'; return; }
+  const solo = mode !== 'friends';   // bot / trial / champ never wait for anyone
+  if (!net.connected && !solo) {
+    el.textContent = 'FRIENDS needs the LAN server (npm start) — it reconnects automatically. Solo modes work offline.';
+    $('startNowBtn').classList.add('hidden');
+    return;
+  }
 
-  if (mode === 'bot') {
-    el.textContent = armed
-      ? 'Rolling out…'
-      : 'You against a full grid of drivatars. Starts the moment you hit READY — no waiting for anyone.';
+  if (solo) {
+    const blurb = {
+      bot: 'You against a full grid of drivatars. Starts the moment you hit READY.',
+      trial: 'Empty track, just you and the clock — your best lap replays as a ghost to chase.',
+      champ: `Three rounds${dir === 'rev' ? ' (reversed)' : ''} — Coastal, Alpine, Sunset — points for positions. Beat the drivatars over a series.`,
+    };
+    el.textContent = armed ? 'Rolling out…' : blurb[mode];
     $('startNowBtn').classList.add('hidden');
     return;
   }
@@ -357,7 +453,8 @@ function renderStatus() {
 
 const MODE_LABEL = { bot: 'BOTS', friends: 'FRIENDS' };
 const STATUS_LABEL = { racing: 'RACING', results: 'RESULTS', ready: 'READY', waiting: 'WAITING' };
-const MAP_SHORT = Object.fromEntries(TRACKS.map(t => [t.id, t.name.split(' ')[0].toUpperCase()]));
+const MAP_SHORT = Object.fromEntries(
+  TRACKS.map(t => [t.id, t.name.split(' ')[0].toUpperCase() + (t.reversed ? ' ·R' : '')]));
 
 net.on('lobby', (m) => {
   lastLobby = m;
@@ -377,19 +474,18 @@ net.on('lobby', (m) => {
 // the join, which made two people at two screens each look alone.
 net.on('open', () => {
   joined = true;
-  net.send({ t: 'join', name: currentName(), color: paint, mode, map });
+  net.send({ t: 'join', name: currentName(), color: paint, mode: serverMode(), map });
+  requestRecords();
   renderStatus();
 });
 net.on('close', () => {
-  $('lobbyStatus').textContent = 'Disconnected — is the server running? (npm start)';
-  $('readyBtn').disabled = false;
-  $('readyBtn').textContent = 'RECONNECT';
-  $('readyBtn').onclickMode = 'reconnect';
-  $('startNowBtn').classList.add('hidden');
+  // Net keeps retrying in the background; BOTS races still work offline.
   joined = false;
   armed = false;
   party = null;
   renderPartyBox();
+  disarmButton();
+  renderStatus();
 });
 
 function showLobby() {
@@ -402,10 +498,152 @@ function hideLobby() { $('lobby').classList.add('hidden'); }
 
 net.on('grid', () => { armed = false; hideLobby(); });
 
-net.on('results', () => {
+// ---------------------------------------------------------------- championship
+// A three-race series (one per circuit, in the chosen direction) vs the
+// drivatars, F1-style points, run entirely on the in-browser race engine.
+const CHAMP_PTS = [25, 18, 15, 12, 10, 8, 6, 4, 3, 2, 1, 0];
+let champ = null;   // { round, races: [ids], points: Map(id -> pts), names: Map }
+
+function startChampionship() {
+  champ = {
+    round: 0,
+    races: ['coastal', 'alpine', 'dunes'].map(b => b + (dir === 'rev' ? '-r' : '')),
+    points: new Map(),
+    names: new Map(),
+  };
+  startChampRound();
+}
+function startChampRound() {
+  offline.start(champ.races[champ.round], currentName(), paint, 'bot');
+}
+function champStandings() {
+  return [...champ.points.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([id, pts]) => ({ id, pts, name: champ.names.get(id) || id }));
+}
+function renderChampBox(final) {
+  const box = $('champBox');
+  const rows = champStandings();
+  const myRank = rows.findIndex(r => r.id === 'you') + 1;
+  box.innerHTML = `
+    <div class="cb-title">🏆 CHAMPIONSHIP — ${final ? 'FINAL STANDINGS' : `ROUND ${champ.round + 1}/3`}</div>
+    ${rows.slice(0, 6).map((r, i) => `
+      <div class="cb-row ${r.id === 'you' ? 'me' : ''}">
+        <span class="cb-pos">${i + 1}</span><span>${String(r.name).replace(/[<>&]/g, '')}</span>
+        <span class="cb-pts">${r.pts} pts</span>
+      </div>`).join('')}
+    ${final && myRank ? `<div class="cb-final">${myRank === 1 ? '👑 CHAMPION!' : `You finished P${myRank} overall`}</div>` : ''}`;
+  box.classList.remove('hidden');
+}
+
+// ---------------------------------------------------------------- daily challenge
+// A date-seeded track+direction time trial — same combo for everyone today.
+// First finish of the day pays bonus XP; your daily best shows on the banner.
+function dailyInfo() {
+  const d = new Date();
+  const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  let h = 0;
+  for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const t = TRACKS[h % TRACKS.length];
+  return { key, id: t.id, label: t.name.toUpperCase() + (t.reversed ? ' ⟲' : '') };
+}
+let dailyRun = null;   // set to today's key while a daily attempt is in flight
+function dailyState() {
+  try {
+    const s = JSON.parse(localStorage.getItem('hr_daily'));
+    if (s && s.key === dailyInfo().key) return s;
+  } catch {}
+  return { key: dailyInfo().key, lap: 0, awarded: false };
+}
+function renderDaily() {
+  const info = dailyInfo();
+  const st = dailyState();
+  $('dailyLabel').innerHTML = `📅 DAILY CHALLENGE · <b>${info.label}</b> · TIME TRIAL`;
+  $('dailyBest').textContent = st.lap ? `best today ${fmtLap(st.lap)}` : '+500 XP for your first run';
+}
+$('dailyGo').addEventListener('click', () => {
+  const info = dailyInfo();
+  baseMap = info.id.endsWith('-r') ? info.id.slice(0, -2) : info.id;
+  dir = info.id.endsWith('-r') ? 'rev' : 'fwd';
+  mode = 'trial';
+  localStorage.setItem('hr_mode', mode);
+  paintModeSeg();
+  applyMap();
+  dailyRun = info.key;
+  if (sendReady()) { showStep(4); armButton(); renderStatus(); }
+  sfx.click();
+});
+
+// ---------------------------------------------------------------- lap records
+// The server keeps a persistent top-10 per track; show the top 5 for the
+// selected circuit. Hidden while offline (there's no server to remember).
+function requestRecords() {
+  if (net.connected && joined) net.send({ t: 'records', map });
+  $('recordsBox').classList.toggle('hidden', !net.connected);
+}
+net.on('records', (m) => {
+  if (m.map !== map) return;
+  $('recTrack').textContent = MAP_SHORT[map] || map;
+  $('recordsList').innerHTML = m.rows.length
+    ? m.rows.map((r, i) => `
+        <div class="lp-row rec-row">
+          <span class="rec-pos">${i + 1}</span>
+          <span>${String(r.name).replace(/[<>&]/g, '')}</span>
+          <span class="rec-lap">${fmtLap(r.lap)}</span>
+        </div>`).join('')
+    : '<div class="rec-empty">No laps on the board yet — set one.</div>';
+});
+net.on('record', (m) => {
+  if (m.map === map) requestRecords();
+  toast(`📋 ${m.name} set a server record lap — ${fmtLap(m.lap)}`, 3500);
+});
+
+net.on('results', (m) => {
   $('againBtn').disabled = false;
-  $('againBtn').textContent = 'RACE AGAIN';
   $('backBtn').disabled = false;
+
+  // Championship bookkeeping rides on the normal results message.
+  if (champ && mode === 'champ') {
+    const rows = m.rows || [];
+    for (const r of rows) {
+      champ.names.set(r.id, r.name);
+      champ.points.set(r.id, (champ.points.get(r.id) || 0) + (CHAMP_PTS[r.pos - 1] || 0));
+    }
+    const final = champ.round >= champ.races.length - 1;
+    renderChampBox(final);
+    if (final) {
+      const rank = champStandings().findIndex(r => r.id === 'you') + 1;
+      const bonus = rank === 1 ? 2000 : rank === 2 ? 1200 : rank === 3 ? 800 : 400;
+      addXP(bonus);
+      toast(`🏆 Championship ${rank === 1 ? 'won! ' : `finished P${rank} — `}+${bonus.toLocaleString()} XP`, 5000);
+      if (game.onProgress) game.onProgress();
+      renderDriver();
+      $('againBtn').textContent = 'NEW CHAMPIONSHIP';
+    } else {
+      $('againBtn').textContent = `NEXT ROUND (${champ.round + 2}/3) →`;
+    }
+  } else {
+    $('champBox').classList.add('hidden');
+    $('againBtn').textContent = 'RACE AGAIN';
+  }
+
+  // Daily challenge: record today's best and pay the first-run bonus.
+  if (dailyRun && dailyRun === dailyInfo().key && mode === 'trial' && game.bestLap > 5000) {
+    const st = dailyState();
+    if (!st.lap || game.bestLap < st.lap) st.lap = Math.round(game.bestLap);
+    if (!st.awarded) {
+      st.awarded = true;
+      addXP(500);
+      toast('📅 Daily challenge complete — +500 XP', 4000);
+      if (game.onProgress) game.onProgress();
+      renderDriver();
+    }
+    try { localStorage.setItem('hr_daily', JSON.stringify(st)); } catch {}
+    renderDaily();
+  }
+  dailyRun = null;
+
+  requestRecords();   // a finished race may have changed the boards
 });
 
 // ---------------------------------------------------------------- buttons
@@ -413,25 +651,56 @@ function sendReady() {
   initAudio();
   const name = currentName();
   localStorage.setItem('hr_name', name);
-  if (!net.connected || !joined) { toast('Not connected to the server yet…'); return false; }
-  // Joining happened on connect; just make sure the server has the latest picks.
-  net.send({ t: 'name', name, color: paint });
-  net.send({ t: 'mode', mode });
-  net.send({ t: 'map', map });
-  sfx.ignition();   // the button says START ENGINE, so start the engine
-  net.send({ t: 'ready', ready: true });
-  armed = true;
-  return true;
+
+  // Solo modes that always run on the in-browser engine, server or not.
+  if (mode === 'trial' || mode === 'champ') {
+    sfx.ignition();
+    armed = true;   // before start(): its synchronous 'grid' un-arms us
+    if (mode === 'champ') startChampionship();
+    else offline.start(map, name, paint, 'trial');
+    return true;
+  }
+
+  if (net.connected && joined) {
+    // Joining happened on connect; just make sure the server has the latest picks.
+    net.send({ t: 'name', name, color: paint });
+    net.send({ t: 'mode', mode: serverMode() });
+    net.send({ t: 'map', map });
+    sfx.ignition();   // the button says START ENGINE, so start the engine
+    net.send({ t: 'ready', ready: true });
+    armed = true;
+    return true;
+  }
+
+  // No server reachable: BOTS races run right here in the browser — the
+  // offline engine speaks the same protocol, so the race code path is shared.
+  if (mode === 'bot') {
+    sfx.ignition();
+    armed = true;
+    offline.start(map, name, paint);
+    return true;
+  }
+  toast('FRIENDS needs the LAN server (npm start) — solo modes work offline.');
+  return false;
 }
 
 $('readyBtn').addEventListener('click', () => {
-  if ($('readyBtn').onclickMode === 'reconnect') {
-    location.reload();
-    return;
-  }
   if (!sendReady()) return;
   armButton();
   renderStatus();
+});
+
+// ⚡ QUICK RACE — one tap from any step straight onto the grid vs drivatars.
+$('quickBtn').addEventListener('click', () => {
+  mode = 'bot';
+  localStorage.setItem('hr_mode', mode);
+  paintModeSeg();
+  if (joined) net.send({ t: 'mode', mode: serverMode() });
+  if (!sendReady()) return;
+  showStep(4);
+  armButton();
+  renderStatus();
+  sfx.click();
 });
 
 $('startNowBtn').addEventListener('click', () => {
@@ -440,6 +709,17 @@ $('startNowBtn').addEventListener('click', () => {
 });
 
 $('againBtn').addEventListener('click', () => {
+  // Championship: AGAIN means "next round" (or a fresh series after the last).
+  if (champ && mode === 'champ') {
+    if (champ.round < champ.races.length - 1) {
+      champ.round++;
+      startChampRound();
+    } else {
+      startChampionship();
+    }
+    sfx.click();
+    return;
+  }
   // A bot race starts instantly, so the results card can stay up until the grid
   // replaces it. A friends race may have to wait for the other driver, and that
   // waiting state — including START NOW — only exists on the lobby panel.
@@ -457,12 +737,17 @@ $('againBtn').addEventListener('click', () => {
 
 // Back to the menu so opponents, paint and name can be changed between races.
 $('backBtn').addEventListener('click', () => {
+  if (champ) { champ = null; toast('Championship closed'); }
+  $('champBox').classList.add('hidden');
   net.send({ t: 'lobby' });
   game.toLobby();
   showLobby();
+  renderDaily();
   sfx.click();
 });
 
+bindTouchUI();
+renderDaily();
 net.connect();
 game.start();
 window.__game = game;         // debug hooks

@@ -18,6 +18,44 @@ let steerState = 0;
 let throttleState = 0;
 let brakeState = 0;
 
+// ---------------------------------------------------------------- touch
+// On-screen controls for phones/tablets. Buttons set this state; readInput
+// merges it exactly like the keyboard, so all the ramping applies unchanged.
+const touch = { steer: 0, throttle: false, brake: false, hand: false, nitro: false };
+export const touchState = touch;   // debug/testing hook
+
+export function bindTouchUI() {
+  const ui = document.getElementById('touchUI');
+  if (!ui) return;
+  const coarse = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+  if (!coarse) return;               // desktop: never show the buttons
+  ui.classList.remove('hidden');
+  const bind = (id, down, up) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const press = (e) => {
+      e.preventDefault();
+      // Capture keeps the release firing even if the thumb slides off the
+      // button; it can throw for exotic pointers — never let that block input.
+      try { el.setPointerCapture(e.pointerId); } catch {}
+      el.classList.add('on');
+      down();
+    };
+    const release = (e) => { e.preventDefault(); el.classList.remove('on'); up(); };
+    el.addEventListener('pointerdown', press);
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('lostpointercapture', release);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  };
+  bind('tLeft', () => { touch.steer = -1; }, () => { if (touch.steer < 0) touch.steer = 0; });
+  bind('tRight', () => { touch.steer = 1; }, () => { if (touch.steer > 0) touch.steer = 0; });
+  bind('tGas', () => { touch.throttle = true; }, () => { touch.throttle = false; });
+  bind('tBrake', () => { touch.brake = true; }, () => { touch.brake = false; });
+  bind('tDrift', () => { touch.hand = true; }, () => { touch.hand = false; });
+  bind('tNitro', () => { touch.nitro = true; }, () => { touch.nitro = false; });
+}
+
 // Press-once latches, so holding a key does not retrigger the action.
 const latch = { KeyR: false, KeyC: false, KeyL: false };
 function pressed(code) {
@@ -36,13 +74,21 @@ function approach(current, target, rate, dt) {
 }
 
 export function readInput(dt, speed = 0) {
-  let steerTarget = 0, throttleTarget = 0, brakeTarget = 0, hand = false;
+  let steerTarget = 0, throttleTarget = 0, brakeTarget = 0, hand = false, nitro = false;
 
   if (keys.has('KeyW') || keys.has('ArrowUp')) throttleTarget = 1;
   if (keys.has('KeyS') || keys.has('ArrowDown')) brakeTarget = 1;
   if (keys.has('KeyA') || keys.has('ArrowLeft')) steerTarget -= 1;
   if (keys.has('KeyD') || keys.has('ArrowRight')) steerTarget += 1;
   if (keys.has('Space')) hand = true;
+  if (keys.has('ShiftLeft') || keys.has('ShiftRight')) nitro = true;
+
+  // Touch buttons merge like extra keys — same ramps apply.
+  if (touch.throttle) throttleTarget = 1;
+  if (touch.brake) brakeTarget = 1;
+  if (touch.steer) steerTarget += touch.steer;
+  if (touch.hand) hand = true;
+  if (touch.nitro) nitro = true;
 
   // Gamepad: analog values win outright — no ramping needed on a real stick.
   let analogSteer = null, analogThrottle = null, analogBrake = null;
@@ -61,6 +107,7 @@ export function readInput(dt, speed = 0) {
     if (rt > 0.03) analogThrottle = rt;
     if (lt > 0.03) analogBrake = lt;
     if (gp.buttons[0] && gp.buttons[0].pressed) hand = true;
+    if (gp.buttons[2] && gp.buttons[2].pressed) nitro = true;   // X / square
     break;
   }
   if (analogSteer !== null && Math.abs(analogSteer) > Math.abs(steerTarget)) steerTarget = analogSteer;
@@ -89,6 +136,7 @@ export function readInput(dt, speed = 0) {
     throttle: throttleState,
     brake: brakeState,
     hand,
+    nitro,
     reset: pressed('KeyR'),
     camCycle: pressed('KeyC'),
     lightsToggle: pressed('KeyL'),
