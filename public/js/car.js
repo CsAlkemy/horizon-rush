@@ -90,6 +90,9 @@ export function createCar(colorHex, { spoiler = Math.random() < 0.5, kind = 'ai'
       lightMatR: inst.tailMats[0] || null,
       headMats: inst.headMats,
       tailMats: inst.tailMats,
+      paintShade: inst.paintShade,
+      retint: inst.retint,
+      steerWheel: inst.steerWheel,
       cabin: null,
     };
   }
@@ -194,8 +197,12 @@ export function createCar(colorHex, { spoiler = Math.random() < 0.5, kind = 'ai'
 // Repaint a car. Drives every paint material, so a model that splits its shell
 // across several of them recolours completely.
 export function setPaint(car, colorHex) {
+  if (car.retint) car.retint(colorHex);   // baked-livery models repaint their texture
   for (const m of car.paintMats || [car.paint]) {
-    if (m && m.color) m.color.set(colorHex);
+    if (!m || !m.color) continue;
+    m.color.set(colorHex);
+    // Keep the manifest's tint strength on repaint (see paintShade in carModels).
+    if (car.paintShade !== undefined && car.paintShade < 1) m.color.multiplyScalar(car.paintShade);
   }
 }
 
@@ -222,6 +229,11 @@ export function animateCar(car, speed, steer, brake, dt) {
     r.spinObj.quaternion.setFromAxisAngle(r.axle, (car.dist / r.radius) % TWO_PI);
     // steer > 0 is right; clockwise from above is a negative rotation about up.
     if (r.steerObj) r.steerObj.quaternion.setFromAxisAngle(r.up, -car.steerVis * 0.42);
+  }
+  // Steering wheel (glTF models with a carved wheel — see carModels.js). The
+  // axis points at the driver, so steering right is a negative turn about it.
+  if (car.steerWheel) {
+    car.steerWheel.obj.quaternion.setFromAxisAngle(car.steerWheel.axis, -car.steerVis * car.steerWheel.maxTurn);
   }
   const targetRoll = -car.steerVis * Math.min(speed / 40, 1) * 0.05;
   car.body.rotation.z += (targetRoll - car.body.rotation.z) * Math.min(1, dt * 8);

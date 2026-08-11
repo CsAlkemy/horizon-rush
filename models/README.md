@@ -5,23 +5,42 @@ The game ships with a procedurally built car. Drop a `.glb` here plus a
 
 ## Currently installed
 
-`car.glb` — Audi R8 LMS 2016, from Sketchfab (Free Standard licence), converted
-by Sketchfab from FBX. 18.2 MB, 397 nodes, 159 meshes, 46 materials, 245,337
-triangles. Loads in ~120 ms off localhost.
+`kestrel_gt.glb` (in-game: "Kestrel GT") — a widebody Polestar 1 drift build
+("Volvo Polestar One K.S edition" by 3D Cars Studio, CC-BY 4.0 — see
+`CREDITS.md`). 11.8 MB, 217 nodes, 70 meshes, 32 materials, 213,164 triangles,
+full interior.
 
-Scaled to 4.58 m it lands a **2.70 m wheelbase** against the real car's 2.65 m,
-and 2.00 m wide against 2.05 m — so the proportions are right.
+The bounding box includes the rear wing's overhang, so `lengthMeters` is set to
+4.8 to land the body itself at ≈4.5 m (wheelbase ≈2.6 m against the real car's
+2.74 m).
+
+The player colour lives in the baked livery texture (`roofpart_1`): its teal
+panels are recoloured in texture space per car (dominant-hue match, luminance
+preserved — see `buildLiveryCache` in `carModels.js`), so the paint reads
+solid while the black stripes, black shell (`movsteer_0_5_0`, which doubles as
+the cockpit trim) and logos stay untouched. Multiplying a colour into the
+texture instead just muddies it — teal × red is near-black.
+
+The steering wheel is merged into the interior meshes in this export, so the
+`steeringWheel` manifest entry carves it out at load time and the animator
+turns it with the front wheels (see below).
 
 ## manifest.json
 
 ```json
 {
-  "file": "car.glb",
+  "file": "kestrel_gt.glb",
   "faces": "+z",
-  "lengthMeters": 4.58,
-  "paintMaterials": ["material_1", "EXT_Car_Paint"],
-  "wheelNodes": ["WHEEL_LR", "WHEEL_LF", "WHEEL_RF", "WHEEL_RR"],
-  "applyTo": "humans"
+  "lengthMeters": 4.8,
+  "paintMaterials": ["roofpart_1"],
+  "wheelNodes": ["volvo_Wheel_Ft_L", "volvo_Wheel_Ft_R", "volvo_Wheel_Bk_L", "volvo_Wheel_Bk_R"],
+  "lampMaterials": ["front_light", "rear_light"],
+  "steeringWheel": {
+    "marker": "Object_114", "axis": [0, 0.38, -0.92],
+    "center": [0.35, 0.83, 0.3], "radius": 0.26, "depth": 0.12, "maxTurn": 2.2
+  },
+  "applyTo": "humans",
+  "driverEye": [0.33, 0.97, -0.18]
 }
 ```
 
@@ -29,24 +48,29 @@ and 2.00 m wide against 2.05 m — so the proportions are right.
 | --- | --- |
 | `faces` | Which way the nose points in the model's own space (`+z`, `-z`, `+x`, `-x`) |
 | `lengthMeters` | Model is uniformly scaled to this bumper-to-bumper length |
-| `paintMaterials` | Material names (substring match) tinted with each player's colour |
+| `paintMaterials` | Material names (substring match) recoloured with each player's colour. Untextured materials get a plain tint; textured ones (baked liveries) are recoloured in texture space so the result stays solid |
 | `wheelNodes` | Node names that spin with road speed |
 | `applyTo` | `all` \| `humans` (default) \| `player` — see performance below |
 | `excludeMaterials` | Optional: drop meshes whose material matches, to save triangles |
+| `lampMaterials` | Optional: material substrings treated as head/tail lamps, replacing the built-in name heuristic (front/rear is still decided by geometry) |
+| `paintShade` | Optional 0–1: darkens a plain (untextured) paint tint — for models whose paint material bleeds into the cockpit trim |
+| `steeringWheel` | Optional: carve a rotatable steering wheel out of merged interior meshes — `marker` names a mesh on the wheel face, `axis`/`center` the steering column (car space), `radius`/`depth` the carve cylinder, `maxTurn` the visual lock in radians |
 | `driverEye` | Optional `[side, up, forward]` eye point for the `C` driver view |
 
 ### Setting `driverEye`
 
 Without it the eye point is guessed from the car's bounding box, which is only a
-rough fit. For this model the measured values are `[0.28, 0.95, 0.30]`.
+rough fit. For this model the measured values are `[0.33, 0.97, -0.18]` —
+left-hand drive, seated square behind the wheel (the carved wheel's hub sits at
+x ≈ 0.35 with the model scaled to 4.8 m).
 
 Getting `up` right matters most, and the trap is that it is easy to end up
 *above* the roof, which silently turns the driver view into a floating hood cam.
-On this car the roof spans 1.06–1.17 m with the model scaled to 4.58 m, so 0.95
-sits the driver just under it. To measure your own, find the cabin node's
-vertical range and subtract roughly 0.2 m from the top.
+On this car the roof tops out around 1.28 m, so 0.96 sits the driver just under
+the headliner. To measure your own, find the cabin node's vertical range and
+subtract roughly 0.2 m from the top.
 
-### Two gotchas this model demonstrates
+### Two gotchas (learned on a previous model, still apply)
 
 **The paint material is not the one you'd guess.** The main body panel — 16,052
 triangles, node `GEO_chassis_SUB0_EXT_Car_Paint1_0` — uses a material named
@@ -99,7 +123,7 @@ pattern requires a word boundary for exactly this reason.
 ## Inspecting a model
 
 ```bash
-node scripts/inspect-model.mjs models/car.glb
+node scripts/inspect-model.mjs models/kestrel_gt.glb
 ```
 
 Prints node names, material names, triangle count, orientation and a suggested
