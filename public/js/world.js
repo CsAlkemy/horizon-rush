@@ -158,10 +158,36 @@ function cloudTexture() {
 }
 
 // ------------------------------------------------------- tree impostors
-// A detailed tree model is far too heavy to instance across a landscape (the
-// supplied one is 551k triangles — 260 of those would be 143M triangles a
-// frame). So render the real model once into a texture at startup and draw it on
-// crossed quads: the trees still look like the model, at 4 triangles each.
+// Real tree geometry is far too heavy to instance across a landscape, however
+// light the model — hundreds of copies multiply everything. So each tree is
+// rendered once into a texture at startup and drawn on crossed quads: the
+// trees still look like the model, at 4 triangles each.
+//
+// A tree *pack* (several trees laid out side by side in one file) becomes one
+// impostor per tree, picked per instance, so the forest gets real variety
+// instead of one silhouette stamped 400 times. Meshes with "tree" in the name
+// are the variants; anything else in the pack (rocks, ground tiles) is
+// skipped — those props are sized and tinted like trees here, which reads
+// wrong. A single-mesh model bakes as one variant, same as before.
+function splitTreeVariants(treeScene) {
+  treeScene.updateMatrixWorld(true);
+  const meshes = [];
+  treeScene.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const named = meshes.filter((m) => /tree/i.test(m.name));
+  const picked = named.length ? named : meshes;
+  if (picked.length <= 1) return [treeScene];
+  return picked.map((mesh) => {
+    // Clone (sharing geometry/material) with the world transform baked in, so
+    // the variant carries its own scale but not its slot in the pack line-up.
+    const solo = mesh.clone(false);
+    solo.matrixAutoUpdate = false;
+    solo.matrix.copy(mesh.matrixWorld);
+    const group = new THREE.Group();
+    group.add(solo);
+    return group;
+  });
+}
+
 function bakeTreeImpostor(renderer, treeScene, width = 768) {
   const box = new THREE.Box3().setFromObject(treeScene);
   const size = box.getSize(new THREE.Vector3());
@@ -169,15 +195,18 @@ function bakeTreeImpostor(renderer, treeScene, width = 768) {
   const w = Math.max(size.x, size.z), h = size.y;
   if (!(w > 0 && h > 0)) return null;
 
-  const height = Math.max(64, Math.round(width * (h / w)));
+  const height = Math.min(2048, Math.max(64, Math.round(width * (h / w))));
   const rt = new THREE.WebGLRenderTarget(width, height, {
     minFilter: THREE.LinearMipmapLinearFilter,
     magFilter: THREE.LinearFilter,
     generateMipmaps: true,
   });
 
-  const cam = new THREE.OrthographicCamera(-w / 2, w / 2, h / 2, -h / 2, 0.1, w * 8);
-  cam.position.set(center.x, center.y, center.z + Math.max(w, h) * 3);
+  // Far plane tracks the camera distance — tied to width alone it clips tall
+  // thin trees (h > ~2.7w) out of their own bake.
+  const dist = Math.max(w, h) * 3;
+  const cam = new THREE.OrthographicCamera(-w / 2, w / 2, h / 2, -h / 2, 0.1, dist + w);
+  cam.position.set(center.x, center.y, center.z + dist);
   cam.lookAt(center);
 
   const bakeScene = new THREE.Scene();
@@ -204,7 +233,7 @@ function bakeTreeImpostor(renderer, treeScene, width = 768) {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 
-  // The source model has done its job — free the 551k triangles it was holding.
+  // The source model has done its job — free the triangles it was holding.
   treeScene.traverse((o) => {
     if (o.isMesh) {
       o.geometry.dispose();
@@ -292,10 +321,10 @@ function rangeStrip(track, i0, i1, fnA, fnB, vPeriod = 2) {
 }
 
 // Shared across world rebuilds (map switches). The environment map is identical
-// for every map, and the tree impostor can only be baked once — baking frees the
-// source model's geometry.
+// for every map, and the tree impostors can only be baked once — baking frees
+// the source model's geometry.
 let _envTexture = null;
-let _treeImpostor = null;
+let _treeImpostors = null;
 
 // ------------------------------------------------------------- main builder
 export function buildWorld(scene, renderer, track, quality, treeModel = null) {
@@ -688,35 +717,51 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
     treeSpots.push([x, h, z, 0.75 + Math.random() * 1.1, Math.random() * Math.PI * 2]);
   }
 
-  if (treeModel && !_treeImpostor) _treeImpostor = bakeTreeImpostor(renderer, treeModel);
-  const impostor = _treeImpostor;
-  if (impostor) {
-    // alphaTest rather than blending, so foliage sorts correctly against itself.
-    // The texture is shared across map rebuilds — dispose() must leave it alone.
-    const mat = new THREE.MeshBasicMaterial({
-      map: impostor.texture,
-      alphaTest: 0.4,
-      side: THREE.DoubleSide,
-      fog: true,
-    });
-    mat.userData.sharedMap = true;
-    const geo = crossedQuads(impostor.aspect);
-    const trees = new THREE.InstancedMesh(geo, mat, treeSpots.length);
+  if (treeModel && !_treeImpostors) {
+    const variants = splitTreeVariants(treeModel);
+    // A multi-tree pack bakes many small textures instead of one big one.
+    const width = variants.length > 1 ? 512 : 768;
+    _treeImpostors = variants.map((v) => bakeTreeImpostor(renderer, v, width)).filter(Boolean);
+    if (!_treeImpostors.length) _treeImpostors = null;
+  }
+  const impostors = _treeImpostors;
+  if (impostors) {
+    // Deal the spots across the variants, then draw each variant as one
+    // instanced mesh — a dozen draw calls for the whole forest.
+    const buckets = impostors.map(() => []);
+    for (const spot of treeSpots) buckets[(Math.random() * impostors.length) | 0].push(spot);
     const tint = new THREE.Color();
-    treeSpots.forEach(([x, y, z, s, rot], i) => {
-      const hgt = 8.5 + s * 4.5;
-      q.setFromAxisAngle(UP, rot);
-      m4.compose(new THREE.Vector3(x, y - 0.1, z), q, new THREE.Vector3(hgt, hgt, hgt));
-      trees.setMatrixAt(i, m4);
-      // Slight per-tree shade variation so a single baked image does not read
-      // as one tree stamped 300 times.
-      tint.setHSL(T.treeHue, T.treeSat, 0.86 + Math.random() * 0.14);
-      trees.setColorAt(i, tint);
+    world.trees = [];
+    impostors.forEach((impostor, vi) => {
+      const spots = buckets[vi];
+      if (!spots.length) return;
+      // alphaTest rather than blending, so foliage sorts correctly against
+      // itself. Textures are shared across map rebuilds — dispose() must
+      // leave them alone.
+      const mat = new THREE.MeshBasicMaterial({
+        map: impostor.texture,
+        alphaTest: 0.4,
+        side: THREE.DoubleSide,
+        fog: true,
+      });
+      mat.userData.sharedMap = true;
+      const geo = crossedQuads(impostor.aspect);
+      const trees = new THREE.InstancedMesh(geo, mat, spots.length);
+      spots.forEach(([x, y, z, s, rot], i) => {
+        const hgt = 8.5 + s * 4.5;
+        q.setFromAxisAngle(UP, rot);
+        m4.compose(new THREE.Vector3(x, y - 0.1, z), q, new THREE.Vector3(hgt, hgt, hgt));
+        trees.setMatrixAt(i, m4);
+        // Slight per-tree shade variation so the variants don't read as
+        // identical stamps even when two stand side by side.
+        tint.setHSL(T.treeHue, T.treeSat, 0.86 + Math.random() * 0.14);
+        trees.setColorAt(i, tint);
+      });
+      trees.instanceMatrix.needsUpdate = true;
+      if (trees.instanceColor) trees.instanceColor.needsUpdate = true;
+      root.add(trees);
+      world.trees.push(trees);
     });
-    trees.instanceMatrix.needsUpdate = true;
-    if (trees.instanceColor) trees.instanceColor.needsUpdate = true;
-    root.add(trees);
-    world.trees = trees;
   } else {
     // Fallback: cheap procedural trunk + leaf blobs.
     const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 2.6, 7);

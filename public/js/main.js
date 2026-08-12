@@ -13,7 +13,7 @@ import { getProgress, xpForLevel, paintUnlocked, paintLockLevel, pbFor, addXP } 
 // Opt-in glTF models. Absent -> procedural car / procedural trees.
 const [carTpl, treeModel] = await Promise.all([
   loadCarTemplate(),
-  loadSceneryModel('tree.glb'),
+  loadSceneryModel('low_poly_trees.glb'),
 ]);
 setCarTemplate(carTpl);
 

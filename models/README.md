@@ -5,9 +5,10 @@ The game ships with a procedurally built car. Drop a `.glb` here plus a
 
 ## Currently installed
 
-`kestrel_gt.glb` (in-game: "Kestrel GT") — a widebody Polestar 1 drift build
-("Volvo Polestar One K.S edition" by 3D Cars Studio, CC-BY 4.0 — see
-`CREDITS.md`). 11.8 MB, 217 nodes, 70 meshes, 32 materials, 213,164 triangles,
+`kestrel_gt.glb` (in-game: "Kestrel GT") — a widebody drift build derived from
+"Volvo Polestar One K.S edition" by 3D Cars Studio (CC-BY 4.0 — see
+`CREDITS.md`), de-badged and altered in-mesh: brand emblems, logo decals and
+the rear show-lattice removed, taillights reshaped. 11 MB, ~207,500 triangles,
 full interior.
 
 The bounding box includes the rear wing's overhang, so `lengthMeters` is set to
@@ -60,15 +61,16 @@ turns it with the front wheels (see below).
 ### Setting `driverEye`
 
 Without it the eye point is guessed from the car's bounding box, which is only a
-rough fit. For this model the measured values are `[0.33, 0.97, -0.18]` —
-left-hand drive, seated square behind the wheel (the carved wheel's hub sits at
-x ≈ 0.35 with the model scaled to 4.8 m).
+rough fit. For this model the measured values are `[0.33, 1.05, 0.2]` —
+left-hand drive (the carved wheel's hub sits at x ≈ 0.35 with the model scaled
+to 4.8 m), and deliberately high and forward, right at the top of the wheel:
+seated lower or further back the dash cowl swallows the road ahead.
 
 Getting `up` right matters most, and the trap is that it is easy to end up
 *above* the roof, which silently turns the driver view into a floating hood cam.
-On this car the roof tops out around 1.28 m, so 0.96 sits the driver just under
-the headliner. To measure your own, find the cabin node's vertical range and
-subtract roughly 0.2 m from the top.
+On this car the headliner sits around 1.15 m, so 1.05 is just under it. To
+measure your own, find the cabin node's vertical range and subtract roughly
+0.1–0.2 m from the top.
 
 ### Two gotchas (learned on a previous model, still apply)
 
@@ -84,29 +86,32 @@ together, double-rotating and tumbling the child on its own axis. The loader now
 keeps only the outermost matching node per wheel, so listing the four parents is
 enough.
 
-## Trees (`tree.glb`)
+## Trees (`low_poly_trees.glb`)
 
-Dropped in automatically if `models/tree.glb` exists — no manifest entry needed.
+Dropped in automatically if the file exists — no manifest entry needed (the
+filename is set in `main.js`; procedural trees are the fallback without it).
 
-The supplied tree is **551,864 triangles** (332,928 of that in the bark alone).
-That cannot be instanced across a landscape: 260 of them would be 143 million
-triangles a frame, where the entire rest of the world is 223,000.
+The installed pack is "Low poly trees" by Aditya Graphical (CC-BY 4.0 — see
+`CREDITS.md`): **12 tree variants + 1 rock** laid out side by side, 13,254
+triangles in all.
 
-So the model is **baked into an impostor** at startup instead. It is rendered
-once into a transparent texture with an orthographic camera, and that image is
-drawn on two quads crossed at 90°, one instanced draw call for the lot. The trees
-still look like this model, at **4 triangles each** instead of 551,864 — 420 of
-them cost 1,680 triangles. The source geometry is disposed right after the bake,
-so the 551k triangles are not kept in memory.
+Even a light model can't be instanced as real geometry across a landscape —
+hundreds of copies multiply everything — so each tree is **baked into an
+impostor** at startup: rendered once into a transparent texture with an
+orthographic camera, then drawn on two quads crossed at 90°. The trees still
+look like the models, at **4 triangles each**. A multi-tree pack becomes one
+impostor (and one instanced draw call) per variant — meshes with "tree" in the
+name are the variants, so the pack's rock is skipped rather than being scaled
+and tinted like a tree. The source geometry is disposed right after the bake.
 
-Variety comes from per-instance height, a random Y rotation of the cross, and a
-slight per-tree shade tint, so one baked image does not read as the same tree
-stamped 420 times.
+Variety comes from the 12 silhouettes, per-instance height, a random Y rotation
+of the cross, and a slight per-tree shade tint.
 
 Crossed quads rather than a billboard shader is a deliberate choice: they need no
 custom shader, they get fog and sorting for free, and they stay correctly
 grounded when the camera looks down — a fully camera-facing billboard visibly
-tilts. Swap in any tree `.glb` and it is re-baked on the next load.
+tilts. Swap in any tree `.glb` — single tree or pack — and it is re-baked on
+the next load.
 
 ## Brake lights
 

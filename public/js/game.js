@@ -315,12 +315,22 @@ export class Game {
     // screen, and its roof reads as inside-out (backface-culled) from in here.
     const paintNames = ((this.carTemplateCfg && this.carTemplateCfg.paintMaterials) || [])
       .map(s => s.toLowerCase());
+    // Only hide meshes that actually live overhead. Some exports merge the
+    // headliner with the door cards, console and footwell into one mesh —
+    // hiding that guts half the cabin and leaves white inner shells behind.
+    // A true roof panel / roll cage sits entirely above the driver's
+    // shoulders; anything reaching lower stays visible (a headliner above the
+    // eye doesn't block the camera anyway).
+    const shoulderY = g.position.y + c.up - 0.35;
+    const bb = new THREE.Box3();
     this.roofMeshes = [...found].filter((o) => {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
-      return !mats.some(m => {
+      if (mats.some(m => {
         const n = (m && m.name || '').toLowerCase();
         return n && paintNames.some(p => n.includes(p));
-      });
+      })) return false;
+      bb.setFromObject(o);
+      return bb.min.y > shoulderY;
     });
   }
 
