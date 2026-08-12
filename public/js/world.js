@@ -110,8 +110,11 @@ function chevronTexture(dir) {
   });
 }
 
-function billboardTexture() {
-  return canvasTexture(1024, 640, (g, w, h) => {
+// Ad artwork for billboard faces. The height parameter tracks the aspect of
+// whatever surface shows it — 640 suits the 13:8 procedural panel, taller for
+// the squarer screens of the billboard model pack.
+function billboardTexture(h = 640) {
+  return canvasTexture(1024, h, (g, w) => {
     const grad = g.createLinearGradient(0, 0, w, h);
     grad.addColorStop(0, '#1477e8');
     grad.addColorStop(1, '#0b4fc0');
@@ -120,11 +123,11 @@ function billboardTexture() {
     g.fillStyle = 'rgba(255,255,255,0.09)';
     g.beginPath(); g.moveTo(0, h); g.lineTo(w * 0.55, 0); g.lineTo(w * 0.8, 0); g.lineTo(w * 0.25, h); g.fill();
     g.fillStyle = '#fff';
-    g.font = 'italic 900 380px "Segoe UI", Arial, sans-serif';
+    g.font = `italic 900 ${Math.round(h * 0.6)}px "Segoe UI", Arial, sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('R', w / 2, h / 2 - 20);
-    g.font = 'italic 800 64px "Segoe UI", Arial, sans-serif';
-    g.fillText('HORIZON RUSH', w / 2, h - 70);
+    g.fillText('R', w / 2, h / 2 - h * 0.03);
+    g.font = `italic 800 ${Math.round(h * 0.1)}px "Segoe UI", Arial, sans-serif`;
+    g.fillText('HORIZON RUSH', w / 2, h - h * 0.11);
   });
 }
 
@@ -327,7 +330,7 @@ let _envTexture = null;
 let _treeImpostors = null;
 
 // ------------------------------------------------------------- main builder
-export function buildWorld(scene, renderer, track, quality, treeModel = null) {
+export function buildWorld(scene, renderer, track, quality, treeModel = null, billboardModel = null) {
   const T = track.def.theme;
   // Every object the world creates hangs off one root, so switching maps is
   // "remove the root" rather than bookkeeping each mesh individually.
@@ -642,26 +645,76 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null) {
   }
 
   // --- billboards -----------------------------------------------------------------
-  const bbTex = billboardTexture();
+  // Real billboard models when the pack is loaded (models/low-poly_billboard_
+  // pack.glb — prepped into billboard_N units, base at y=0, screens facing +z,
+  // see models/README.md); the procedural panel-on-legs is the fallback.
+  // Either way the ad face shows the game's own generated artwork.
+  const bbUnits = billboardModel
+    ? billboardModel.children.filter((n) => n.name.startsWith('billboard_'))
+    : [];
+  let adMat = null;
+  if (bbUnits.length) {
+    // Ad texture aspect matched to the pack's (tilted) screen quad.
+    let screen = null;
+    bbUnits[0].traverse((o) => {
+      const mats = o.isMesh ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+      if (!screen && mats.some((m) => m && m.name.startsWith('ad_screen'))) screen = o;
+    });
+    // Prepped units stand with their ad face square to +z, so the screen's
+    // own width/height is the aspect the artwork has to be drawn at.
+    const ss = new THREE.Box3().setFromObject(screen).getSize(new THREE.Vector3());
+    const aspect = ss.x / ss.y;
+    // glTF UVs start at the top-left, three.js canvas textures at the bottom —
+    // left flipped, the artwork lands mirrored on an imported screen.
+    const adTex = billboardTexture(Math.round(1024 / aspect));
+    adTex.flipY = false;
+    adMat = new THREE.MeshStandardMaterial({ map: adTex, roughness: 0.6 });
+    // Pack textures survive world.dispose() across map switches.
+    for (const unit of bbUnits) unit.traverse((o) => {
+      if (o.isMesh) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) if (m) m.userData.sharedMap = true;
+      }
+    });
+  }
+  const bbTex = bbUnits.length ? null : billboardTexture();
+  let bbIdx = 0;
   for (const fs of [0.06, 0.27, 0.5, 0.72, 0.9]) {
-    const p = track.point(fs * track.L);
+    const s = fs * track.L;
+    const p = track.point(s);
     // Stand them on the inland side (larger x) so they never end up in the sea.
     const side = p.nx >= 0 ? 1 : -1;
     const bx = p.x + p.nx * side * (railOff + 9);
     const bz = p.z + p.nz * side * (railOff + 9);
     const by = heightAt(bx, bz);
-    const bb = new THREE.Group();
-    const panel = new THREE.Mesh(new THREE.PlaneGeometry(13, 8.1),
-      new THREE.MeshStandardMaterial({ map: bbTex, side: THREE.DoubleSide, roughness: 0.6 }));
-    panel.position.y = 7.2;
-    bb.add(panel);
-    for (const lx of [-5, 0, 5]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.45, 3.6, 0.45), towerMat);
-      leg.position.set(lx, 1.6, 0);
-      bb.add(leg);
+    let bb;
+    if (bbUnits.length) {
+      const unit = bbUnits[bbIdx++ % bbUnits.length];
+      bb = unit.clone(true);
+      const height = new THREE.Box3().setFromObject(unit).getSize(new THREE.Vector3()).y;
+      bb.scale.setScalar(11 / height);
+      bb.traverse((o) => {
+        if (!o.isMesh) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        if (mats.some((m) => m && m.name.startsWith('ad_screen'))) o.material = adMat;
+      });
+    } else {
+      bb = new THREE.Group();
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(13, 8.1),
+        new THREE.MeshStandardMaterial({ map: bbTex, side: THREE.DoubleSide, roughness: 0.6 }));
+      panel.position.y = 7.2;
+      bb.add(panel);
+      for (const lx of [-5, 0, 5]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.45, 3.6, 0.45), towerMat);
+        leg.position.set(lx, 1.6, 0);
+        bb.add(leg);
+      }
     }
+    // Aim at traffic still approaching rather than square at the road beside
+    // it: a board turned broadside is only ever seen edge-on from a cockpit.
+    const aim = track.point((s - 55 + track.L) % track.L);
     bb.position.set(bx, by, bz);
-    bb.rotation.y = Math.atan2(p.x - bx, p.z - bz);
+    bb.rotation.y = Math.atan2(aim.x - bx, aim.z - bz);
     bb.traverse(o => { if (o.isMesh) o.castShadow = true; });
     root.add(bb);
   }

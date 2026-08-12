@@ -35,12 +35,14 @@ Modified: each of the pack's 12 trees is baked into an impostor billboard at
 load time and tinted per instance; the pack's rock is unused. Cleared for
 commercial use with this attribution.
 
-### Billboards (`models/low-poly_billboard_pack.glb`) — in repo, not yet wired
-"Low-poly Billboard Pack"
-(https://sketchfab.com/3d-models/low-poly-billboard-pack-f5da73b8050a4e7d9fce53b6171ccbc7)
-by **staticcc** (https://sketchfab.com/staticcc) is licensed under
-**CC Attribution 4.0** (http://creativecommons.org/licenses/by/4.0/).
-Cleared for commercial use with this attribution.
+### Billboards (`models/low-poly_billboard_pack.glb`) — ACTIVE
+"Low-poly Billboard Pack" (https://skfb.ly/ouGyw) by **staticcc** is licensed
+under **Creative Commons Attribution**
+(http://creativecommons.org/licenses/by/4.0/).
+Modified: repacked into three self-contained billboard units (world transform
+baked, each recentred with its screen facing +z); the pack's spare empty frame
+and placeholder screen images were dropped — the game draws its own ad artwork
+on the screens at load time. Cleared for commercial use with this attribution.
 
 ## Audio
 - Engine loops derived from a Pixabay recording (see `public/audio/README.md`)

@@ -27,9 +27,10 @@ const NITRO_RESPAWN = 15;     // seconds before a collected canister returns
 const NITRO_GRAB_R = 2.6;     // pickup collection radius, meters
 
 export class Game {
-  constructor(canvas, quality, treeModel = null, mapId = 'coastal') {
+  constructor(canvas, quality, treeModel = null, mapId = 'coastal', billboardModel = null) {
     this.quality = quality;
     this.treeModel = treeModel;   // kept for world rebuilds on map switch
+    this.billboardModel = billboardModel;
     this.track = buildTrack(mapId);
     this.laps = TOTAL_LAPS;
 
@@ -46,7 +47,7 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.5, 6000);
     this._vw = innerWidth; this._vh = innerHeight;
 
-    this.world = buildWorld(this.scene, this.renderer, this.track, quality, treeModel);
+    this.world = buildWorld(this.scene, this.renderer, this.track, quality, treeModel, billboardModel);
     this.hud = new HUD(this.track);
     this.fx = new DriftFX(this.scene);   // tire smoke + rubber marks
 
@@ -446,7 +447,7 @@ export class Game {
     this.track = buildTrack(id);
     this.fx.clearMarks();   // old circuit's rubber makes no sense here
     this.world.dispose();
-    this.world = buildWorld(this.scene, this.renderer, this.track, this.quality, this.treeModel);
+    this.world = buildWorld(this.scene, this.renderer, this.track, this.quality, this.treeModel, this.billboardModel);
     this.buildPickups();
     this.hud.setTrack(this.track);
     const g = this.track.gridSlot(11);

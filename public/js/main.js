@@ -10,10 +10,11 @@ import { bindTouchUI } from './input.js';
 import { TRACKS } from '/shared/track.js';
 import { getProgress, xpForLevel, paintUnlocked, paintLockLevel, pbFor, addXP } from './progress.js';
 
-// Opt-in glTF models. Absent -> procedural car / procedural trees.
-const [carTpl, treeModel] = await Promise.all([
+// Opt-in glTF models. Absent -> procedural car / trees / billboards.
+const [carTpl, treeModel, billboardModel] = await Promise.all([
   loadCarTemplate(),
   loadSceneryModel('low_poly_trees.glb'),
+  loadSceneryModel('low-poly_billboard_pack.glb'),
 ]);
 setCarTemplate(carTpl);
 
@@ -57,7 +58,7 @@ $('musicSel').addEventListener('change', () => {
 $('nameInput').value = localStorage.getItem('hr_name') || '';
 
 // game + net + offline fallback (BOTS races run in-browser with no server)
-const game = new Game($('gl'), quality, treeModel, map);
+const game = new Game($('gl'), quality, treeModel, map, billboardModel);
 const net = new Net();
 const offline = new LocalRace(net);
 net.local = offline;
