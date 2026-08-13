@@ -28,5 +28,14 @@
     0.33,
     1.05,
     0.2
-  ]
+  ],
+  "bots": {
+    "file": "ultimate_low-poly_car_pack.glb",
+    "container": "RootNode",
+    "faces": "-z",
+    "lengthMeters": 4.8,
+    "paintNodes": ["Paint"],
+    "lampNodes": ["Front", "Rear"],
+    "splitWheelNodes": ["Tires", "Rims"]
+  }
 }

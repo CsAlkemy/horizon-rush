@@ -20,6 +20,25 @@ signature no longer matches the donor car.
 > resemblance remains — judged acceptable for a stylized arcade game, but the
 > procedural car stays the zero-risk fallback (delete `manifest.json`).
 
+### Bot cars (`models/ultimate_low-poly_car_pack.glb`) — ACTIVE
+"Ultimate Low-Poly Car Pack" (https://skfb.ly/pKnv8) by **ProbablyNotG** is
+licensed under **Creative Commons Attribution 4.0**
+(http://creativecommons.org/licenses/by/4.0/).
+Modified: the pack ships 14 cars of which 7 are duplicates, so each unique car
+is extracted into its own template, re-oriented nose-to-+Z, uniformly scaled to
+4.8 m so one collision box fits them all, re-seated on the ground plane, its
+merged four-wheel meshes cut into per-corner wheels, and its `Paint` node
+recoloured per driver. Used for the AI grid only; the player drives
+`kestrel_gt.glb`. Cleared for commercial use with this attribution.
+
+> **Trademark caveat, distinct from the licence.** CC-BY covers copyright in the
+> models; it grants nothing regarding trade dress or trademarks. These cars are
+> recognisable real-world designs and the pack's own node names are the brands
+> (`Ferrari`, `Mercedes`, `Ford`, `Land Rover`) — those strings ship inside the
+> .glb. Unlike `kestrel_gt.glb` they have **not** been de-badged or reshaped, so
+> the residual-resemblance risk accepted for the player's car applies here
+> sevenfold. Tracked in `RELEASE_CHECKLIST.md`.
+
 ### Trees (`models/low_poly_trees.glb`)
 "Low poly trees"
 (https://sketchfab.com/3d-models/low-poly-trees-51cae4a194344e8bbfbd0a4cff205f76)

@@ -127,20 +127,24 @@ function makeLiveryTexture(cache, srcTex) {
   return { tex, repaint };
 }
 
-// Returns { scene, cfg } ready to clone, or null when no model is configured.
-export async function loadCarTemplate() {
-  let cfg;
+// Timeout so a stalled request can never hold up game boot. Returns null when
+// there is no manifest at all, which is the "use procedural cars" signal.
+async function readManifest() {
   try {
-    // Timeout so a stalled request can never hold up game boot.
     const res = await fetch('/models/manifest.json', {
       cache: 'no-cache',
       signal: AbortSignal.timeout(2500),
     });
     if (!res.ok) return null;
-    cfg = await res.json();
+    return await res.json();
   } catch {
-    return null; // no manifest -> procedural cars
+    return null;
   }
+}
+
+// Returns { scene, cfg } ready to clone, or null when no model is configured.
+export async function loadCarTemplate() {
+  const cfg = await readManifest();
   if (!cfg || !cfg.file) return null;
 
   try {
@@ -177,6 +181,198 @@ export async function loadCarTemplate() {
     console.warn('[horizon-rush] car model failed to load, using procedural body:', e.message);
     return null;
   }
+}
+
+// ---------------------------------------------------------------- car packs
+// A pack .glb holds several complete cars parked side by side under one
+// container node (Sketchfab exports them as children of "RootNode"). Each is
+// pulled out into its own standalone template so the bot grid can field a
+// different car per driver, and every car is scaled to the same length so the
+// shared collision box still fits.
+//
+// manifest.json "bots":
+// {
+//   "file": "pack.glb",
+//   "container": "RootNode",     // node whose children are the cars
+//   "faces": "-z",
+//   "lengthMeters": 4.8,
+//   "paintNodes": ["Paint"],     // node-name prefixes to tint per driver
+//   "splitWheelNodes": ["Tires", "Rims"],   // merged 4-wheel meshes to cut apart
+//   "skip": ["Bus"]              // container children that are not cars
+// }
+export async function loadCarPack() {
+  const root = await readManifest();
+  const cfg = root && root.bots;
+  if (!cfg || !cfg.file) return [];
+
+  let gltf;
+  try {
+    gltf = await new GLTFLoader().loadAsync('/models/' + cfg.file);
+  } catch (e) {
+    console.warn('[horizon-rush] bot car pack failed to load:', e.message);
+    return [];
+  }
+
+  const container = cfg.container
+    ? gltf.scene.getObjectByName(cfg.container)
+    : gltf.scene;
+  if (!container || !container.children.length) {
+    console.warn(`[horizon-rush] bot pack container "${cfg.container}" not found`);
+    return [];
+  }
+  gltf.scene.updateMatrixWorld(true);
+
+  // Packs habitually ship each car twice ("Zenvo" and "Zenvo.001"). GLTFLoader
+  // strips the dot when it sanitizes names, so the duplicate suffix to fold
+  // away is bare trailing digits, not ".001".
+  const skip = (cfg.skip || []).map(s => s.toLowerCase());
+  const seen = new Set();
+  const picks = container.children.filter((c) => {
+    const base = (c.name || '').replace(/\d+$/, '');
+    if (!base || seen.has(base)) return false;
+    if (skip.some(s => base.toLowerCase().includes(s))) return false;
+    seen.add(base);
+    return true;
+  });
+
+  const yaw = DEFAULT_ROT[cfg.faces] ?? 0;
+  const targetLen = cfg.lengthMeters || 4.4;
+  const templates = [];
+
+  for (const car of picks) {
+    // The car sits under the pack's container (Sketchfab adds a -90deg X root,
+    // and FBX imports often carry a large scale), so cloning the node alone
+    // would drop all of that. Bake its world matrix into the clone instead.
+    const inner = car.clone(true);
+    inner.matrix.copy(car.matrixWorld);
+    inner.matrix.decompose(inner.position, inner.quaternion, inner.scale);
+
+    // `fit` carries the orientation/scale/centring so the baked TRS on `inner`
+    // survives untouched.
+    const wrapper = new THREE.Group();
+    const fit = new THREE.Group();
+    fit.rotation.y = yaw;
+    fit.add(inner);
+    wrapper.add(fit);
+
+    wrapper.updateMatrixWorld(true);
+    const size = new THREE.Box3().setFromObject(inner).getSize(new THREE.Vector3());
+    fit.scale.setScalar(size.z > 0.001 ? targetLen / size.z : 1);
+
+    wrapper.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(inner);
+    const c = box.getCenter(new THREE.Vector3());
+    fit.position.x -= c.x;
+    fit.position.z -= c.z;
+    fit.position.y -= box.min.y;      // wheels touch the ground plane
+
+    const cut = splitMergedWheels(wrapper, cfg.splitWheelNodes || []);
+    wrapper.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } });
+
+    templates.push({
+      scene: wrapper,
+      name: car.name,
+      // Wheel rigs come from the corner groups the split just made; if nothing
+      // was split, fall back to whatever the manifest named.
+      cfg: { ...cfg, wheelNodes: cut ? [WHEEL_PREFIX] : (cfg.wheelNodes || []) },
+    });
+  }
+
+  console.info(`[horizon-rush] bot car pack ${cfg.file}: ` +
+    `${templates.length} cars (${templates.map(t => t.name).join(', ')})`);
+  return templates;
+}
+
+const WHEEL_PREFIX = 'hrwheel_';
+
+// Packs merge all four wheels into one mesh, so spinning that node swings the
+// whole set around the car's centre. Cut such a mesh into its four corners by
+// triangle position and wrap each in a group seated on that corner's axle — the
+// normal rig code in instantiateTemplate then treats them as ordinary wheels.
+// Index surgery only: the corners share the source's vertex buffers.
+function splitMergedWheels(wrapper, nodeNames) {
+  if (!nodeNames.length) return 0;
+  const want = nodeNames.map(s => s.toLowerCase());
+  wrapper.updateMatrixWorld(true);
+
+  const targets = [];
+  wrapper.traverse((o) => {
+    if (!o.isMesh) return;
+    for (let p = o; p; p = p.parent) {
+      const n = (p.name || '').toLowerCase();
+      if (want.some(s => n.startsWith(s))) { targets.push(o); return; }
+    }
+  });
+
+  let made = 0;
+  const v = new THREE.Vector3();
+  const cen = new THREE.Vector3();
+  for (const mesh of targets) {
+    const geo = mesh.geometry;
+    const pa = geo.attributes.position;
+    if (!pa) continue;
+    const idx = geo.index ? geo.index.array : null;
+    const triCount = Math.floor((idx ? idx.length : pa.count) / 3);
+
+    // Quadrant per triangle, from its centroid in car space (nose +Z, so
+    // z > 0 is the front axle and x > 0 the right-hand side). Both a world-space
+    // box (to place the hub) and a geometry-space box (to bound the corner) are
+    // accumulated as we go.
+    const groups = new Map();
+    const raw = new THREE.Vector3();
+    for (let t = 0; t < triCount; t++) {
+      const tri = [0, 0, 0];
+      for (let k = 0; k < 3; k++) tri[k] = idx ? idx[t * 3 + k] : t * 3 + k;
+      cen.set(0, 0, 0);
+      for (const vi of tri) cen.add(v.fromBufferAttribute(pa, vi).applyMatrix4(mesh.matrixWorld));
+      cen.divideScalar(3);
+      const key = (cen.z >= 0 ? 'F' : 'B') + (cen.x >= 0 ? 'R' : 'L');
+      let g = groups.get(key);
+      if (!g) groups.set(key, g = { index: [], box: new THREE.Box3(), local: new THREE.Box3() });
+      g.index.push(tri[0], tri[1], tri[2]);
+      for (const vi of tri) {
+        raw.fromBufferAttribute(pa, vi);
+        g.local.expandByPoint(raw);
+        g.box.expandByPoint(v.copy(raw).applyMatrix4(mesh.matrixWorld));
+      }
+    }
+    // One quadrant means this was a single wheel (or not a wheel at all) — leave it.
+    if (groups.size < 2) continue;
+
+    const parent = mesh.parent;
+    for (const [key, g] of groups) {
+      // Seat the group on the corner's axle centre. The wheel's bounding-box
+      // centre IS the axle, and rotating about anything else makes it orbit.
+      const worldC = g.box.getCenter(new THREE.Vector3());
+      const localC = parent.worldToLocal(worldC.clone());
+
+      const hub = new THREE.Group();
+      hub.name = WHEEL_PREFIX + key;
+      hub.position.copy(localC);
+
+      const cornerGeo = new THREE.BufferGeometry();
+      for (const [name, attr] of Object.entries(geo.attributes)) cornerGeo.setAttribute(name, attr);
+      cornerGeo.setIndex(g.index);
+      // The corners share the source's vertex buffers, so computeBounding*()
+      // would measure all four wheels — it ignores the index. Set the bounds
+      // from this corner's own vertices instead, or culling and the wheel-radius
+      // estimate in instantiateTemplate both see a wheel the size of the axle set.
+      cornerGeo.boundingBox = g.local.clone();
+      cornerGeo.boundingSphere = g.local.getBoundingSphere(new THREE.Sphere());
+
+      const m = new THREE.Mesh(cornerGeo, mesh.material);
+      // Keep the source's own local transform, minus the hub offset, so the
+      // corner renders exactly where it did before the cut.
+      m.position.copy(mesh.position).sub(localC);
+      m.quaternion.copy(mesh.quaternion);
+      m.scale.copy(mesh.scale);
+      hub.add(m);
+      parent.add(hub);
+      made++;
+    }
+    mesh.removeFromParent();
+  }
+  return made;
 }
 
 // ---------------------------------------------------------------- steering wheel
@@ -368,6 +564,23 @@ export function instantiateTemplate(template, colorHex) {
   const cfg = template.cfg;
   const group = template.scene.clone(true);
   const paintNames = (cfg.paintMaterials || []).map(s => s.toLowerCase());
+  // Packs often reuse one material across body, trim and tyres (this one paints
+  // all three with a single black), so material names cannot say what is
+  // paintwork. "paintNodes" selects by node instead: any mesh under a node whose
+  // name starts with one of these is bodywork and takes the driver's colour.
+  const paintNodeNames = (cfg.paintNodes || []).map(s => s.toLowerCase());
+  // Same problem for lamps: a pack's light materials are called "Material.003",
+  // so "lampNodes" names the light nodes instead. Front/rear is still decided by
+  // where the mesh sits, not by which name matched.
+  const lampNodeNames = (cfg.lampNodes || []).map(s => s.toLowerCase());
+  const underNode = (o, names) => {
+    if (!names.length) return false;
+    for (let p = o; p; p = p.parent) {
+      const n = (p.name || '').toLowerCase();
+      if (names.some(s => n.startsWith(s))) return true;
+    }
+    return false;
+  };
   const wheelNames = (cfg.wheelNodes || ['wheel', 'tyre', 'tire', 'rim']).map(s => s.toLowerCase());
 
   const wheels = [];
@@ -405,6 +618,8 @@ export function instantiateTemplate(template, colorHex) {
   group.traverse((o) => {
     const nameL = (o.name || '').toLowerCase();
     if (o.isMesh) {
+      const isPaintNode = underNode(o, paintNodeNames);
+      const isLampNode = underNode(o, lampNodeNames);
       // Optionally cull whole material groups (e.g. a full interior that is
       // never visible from the chase camera) to save triangles.
       if (dropMats.length) {
@@ -419,13 +634,13 @@ export function instantiateTemplate(template, colorHex) {
         const mn = (m.name || '').toLowerCase();
         // Collect lamp materials so headlights and brake lights can be driven,
         // splitting them front/rear by where the mesh actually sits.
-        if (isLamp(mn)) {
+        if (isLampNode || isLamp(mn)) {
           m.emissive = m.emissive || new THREE.Color(0x000000);
           lampBox.setFromObject(o);
           const atRear = isFinite(lampBox.max.z) && lampBox.getCenter(new THREE.Vector3()).z < 0;
           (atRear ? tailMats : headMats).push(m);
         }
-        if (paintNames.length && paintNames.some(p => mn.includes(p))) {
+        if (isPaintNode || (paintNames.length && paintNames.some(p => mn.includes(p)))) {
           // Textured paint (a baked livery) is recoloured in texture space
           // below; only plain materials take a direct colour tint.
           if (m.map) {
@@ -437,7 +652,12 @@ export function instantiateTemplate(template, colorHex) {
           if (m.isMeshPhysicalMaterial) { m.clearcoat = 1; m.clearcoatRoughness = 0.08; }
         }
       }
-      o.geometry.computeBoundingBox();
+      // Never recompute a box that already exists. GLTFLoader sets one from the
+      // accessor min/max, and geometry carved by index surgery (split wheels, the
+      // steering wheel) sets its own — computeBoundingBox() ignores the index and
+      // would measure the whole shared vertex buffer, so recomputing turns a
+      // single wheel back into the full axle set.
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
       const s = o.geometry.boundingBox.getSize(new THREE.Vector3());
       const vol = s.x * s.y * s.z;
       if (vol > biggestVol) { biggestVol = vol; biggest = o; }

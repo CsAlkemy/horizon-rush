@@ -10,6 +10,13 @@ let template = null;
 export function setCarTemplate(t) { template = t; }
 export function carTemplateConfig() { return template ? template.cfg : null; }
 
+// Bot cars come from a separate multi-car pack (manifest "bots"), so an AI grid
+// shows a field of different cars instead of twelve copies of the player's.
+let botPack = [];
+let botTurn = 0;
+export function setCarPack(list) { botPack = list || []; botTurn = 0; }
+export function botPackSize() { return botPack.length; }
+
 const glassMat = new THREE.MeshPhysicalMaterial({
   color: 0x0c1118, metalness: 0.9, roughness: 0.08, envMapIntensity: 1.4,
 });
@@ -62,20 +69,28 @@ function makeContactShadow(length = 4.4, width = 2.0) {
 // manifest "applyTo": 'all' | 'humans' (default) | 'player' — a detailed model
 // costs far more than the procedural body, so limiting it to the handful of
 // human cars keeps the frame rate up with a full twelve-car grid.
-function templateApplies(kind) {
-  if (!template) return false;
-  if (kind === 'ghost') return false;   // ghosts use the light procedural body
+// Which template a car of this kind should use, or null for the procedural body.
+// Bots prefer the pack; `variant` pins a specific car (so a rejoining racer keeps
+// the one they had), otherwise the pack is dealt round-robin for an even spread.
+function templateFor(kind, variant) {
+  if (kind === 'ghost') return null;    // ghosts use the light procedural body
+  if (kind === 'ai' && botPack.length) {
+    const i = Number.isInteger(variant) ? variant : botTurn++;
+    return botPack[((i % botPack.length) + botPack.length) % botPack.length];
+  }
+  if (!template) return null;
   switch (template.cfg.applyTo || 'humans') {
-    case 'all': return true;
-    case 'player': return kind === 'player';
-    default: return kind === 'player' || kind === 'human';
+    case 'all': return template;
+    case 'player': return kind === 'player' ? template : null;
+    default: return (kind === 'player' || kind === 'human') ? template : null;
   }
 }
 
-export function createCar(colorHex, { spoiler = Math.random() < 0.5, kind = 'ai' } = {}) {
+export function createCar(colorHex, { spoiler = Math.random() < 0.5, kind = 'ai', variant } = {}) {
   // A loaded glTF model replaces the procedural body when one is configured.
-  if (templateApplies(kind)) {
-    const inst = instantiateTemplate(template, colorHex);
+  const tpl = templateFor(kind, variant);
+  if (tpl) {
+    const inst = instantiateTemplate(tpl, colorHex);
     const g = new THREE.Group();
     g.add(inst.group);
     const box = new THREE.Box3().setFromObject(inst.group);

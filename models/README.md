@@ -26,6 +26,68 @@ The steering wheel is merged into the interior meshes in this export, so the
 `steeringWheel` manifest entry carves it out at load time and the animator
 turns it with the front wheels (see below).
 
+`ultimate_low-poly_car_pack.glb` — **the bot grid.** "Ultimate Low-Poly Car
+Pack" by ProbablyNotG (CC-BY 4.0 — see `CREDITS.md`). 3.1 MB, 33,584 triangles
+for the whole pack. It holds 14 cars under `RootNode`, but each appears twice
+(`Zenvo` / `Zenvo.001`), so 7 unique cars are used: Zenvo, Sterrato, Artura,
+Mercedes, Ford, Ferrari, Land Rover — ≈3,400 triangles each, vs ~207,500 for
+the player's Kestrel, which is why bots can afford a real model at all.
+
+> **Trademark warning.** These are recognisable real-world cars and the pack's
+> node names are the brands themselves (`Ferrari`, `Mercedes`, `Ford`,
+> `Land Rover`). The CC-BY licence covers redistribution; it says nothing about
+> trade dress or trademarks, and unlike `kestrel_gt.glb` these have not been
+> de-badged or reshaped. See `RELEASE_CHECKLIST.md` before publishing.
+
+## The `bots` manifest section
+
+Bot cars come from their own multi-car pack so an AI grid fields a field of
+different cars rather than twelve copies of the player's. `loadCarPack()` pulls
+each car out of the container node into a standalone template, and `car.js`
+deals them round-robin.
+
+```json
+"bots": {
+  "file": "ultimate_low-poly_car_pack.glb",
+  "container": "RootNode",     // node whose children are the individual cars
+  "faces": "-z",               // which way the cars' noses point
+  "lengthMeters": 4.8,         // every car scaled to this, so one collision box fits
+  "paintNodes": ["Paint"],     // node-name prefixes that take the driver's colour
+  "lampNodes": ["Front", "Rear"],         // head/tail lights; front vs rear is by position
+  "splitWheelNodes": ["Tires", "Rims"],   // merged 4-wheel meshes to cut into corners
+  "skip": ["Bus"]              // container children that are not cars (optional)
+}
+```
+
+Three things about packs that cost real debugging time:
+
+- **GLTFLoader sanitizes names.** `Zenvo.001` arrives as `Zenvo001` and
+  `Land Rover` as `Land_Rover`. Duplicate-detection strips trailing digits, and
+  every name match here is a *prefix* test, not equality.
+- **A car node is not self-contained.** It sits under the pack's container,
+  which on a Sketchfab export carries a −90° X rotation and often a large FBX
+  scale. Cloning the node alone silently loses all of it (the cars render at the
+  wrong scale, or not at all), so `loadCarPack` bakes `matrixWorld` into the
+  clone and does its orienting on a wrapper group.
+- **`paintNodes` exists because material names are useless here.** This pack
+  paints body, trim *and* tyres with one black `Material.162`, so tinting by
+  material name would turn the tyres the driver's colour. Same for `lampNodes`:
+  the lights are `Material.003`/`Material.188`, which no lamp-name regex catches.
+
+### Split wheels
+
+Packs habitually merge all four wheels into one mesh, so rotating that node
+swings the whole set around the car's centre. `splitMergedWheels` cuts such a
+mesh into four corners by triangle centroid and seats each in a group on that
+corner's axle, after which the normal rig code treats them as ordinary wheels.
+It is index surgery — corners share the source vertex buffers.
+
+That sharing has one sharp edge: **`computeBoundingBox()`/`computeBoundingSphere()`
+ignore the index**, so calling either on a carved geometry measures the whole
+original buffer and reports one wheel as the size of the entire axle set. The
+split sets its bounds explicitly, and `instantiateTemplate` only computes a box
+when one is absent. Recomputing unconditionally breaks wheel radii and culling.
+
 ## manifest.json
 
 ```json

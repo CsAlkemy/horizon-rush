@@ -42,6 +42,19 @@ Requirements source: https://docs.crazygames.com/requirements/intro/
       (https://pixabay.com/sound-effects/roaring-sports-car-381841/, 7 s,
       Pixabay Content License — commercial use OK, no attribution required).
       Ship the derived loops, not the source mp3
+- [ ] **Decide on the bot car pack** (`ultimate_low-poly_car_pack.glb`, added
+      2026-08-13). Licence is fine — "Ultimate Low-Poly Car Pack" by
+      ProbablyNotG, CC-BY 4.0, attributed in `CREDITS.md`. The exposure is
+      trademark/trade dress, which CC-BY does not address: the 7 cars are
+      recognisable real-world designs and the pack's node names are literally
+      `Ferrari`, `Mercedes`, `Ford`, `Land Rover`, and those strings ship inside
+      the .glb. This is the same call already accepted for `kestrel_gt.glb`,
+      except these are not de-badged and there are seven of them. Options, in
+      increasing cost: ship as-is; rename the nodes in the .glb so no brand
+      string is in the file (shapes still recognisable); reshape/de-badge as was
+      done for the Kestrel; or drop the pack and let bots keep the procedural
+      body (delete the `bots` block from `models/manifest.json` — the code
+      falls back cleanly)
 - [ ] Confirm every remaining asset is CC0/CC-BY-cleared for commercial use
 
 ## 2 · Static build (`dist/` from a build script)
@@ -85,7 +98,12 @@ Requirements source: https://docs.crazygames.com/requirements/intro/
 
 - [ ] PEGI-12 check (should already pass — no violence/gambling/adult content)
 - [ ] Playtest all modes that ship: BOTS, TIME TRIAL, CHAMPIONSHIP, DAILY
-- [ ] Test on a low-end machine at Medium/Low graphics
+- [ ] Test on a low-end machine at Medium/Low graphics. Watch draw calls now
+      that bots use real models: splitting each pack car's merged wheels turns
+      8 meshes into ~17, so a full 11-bot grid is ~190 draw calls of bot car
+      alone. Triangles are cheap (~3,400/car vs the Kestrel's ~207,500) and the
+      geometry is shared across instances, so draw-call count is the thing to
+      measure, not memory
 - [ ] Test mobile Safari + Chrome (touch UI, performance, audio unlock)
 - [ ] No external links, no links to other game sites, no donation buttons
 

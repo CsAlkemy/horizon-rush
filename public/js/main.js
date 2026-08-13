@@ -4,19 +4,21 @@ import { Net } from './net.js';
 import { LocalRace } from './offline.js';
 import { initAudio, sfx, setMusicOn, musicStatus } from './audio.js';
 import { toast } from './hud.js';
-import { loadCarTemplate, loadSceneryModel } from './carModels.js';
-import { setCarTemplate } from './car.js';
+import { loadCarTemplate, loadCarPack, loadSceneryModel } from './carModels.js';
+import { setCarTemplate, setCarPack } from './car.js';
 import { bindTouchUI } from './input.js';
 import { TRACKS } from '/shared/track.js';
 import { getProgress, xpForLevel, paintUnlocked, paintLockLevel, pbFor, addXP } from './progress.js';
 
 // Opt-in glTF models. Absent -> procedural car / trees / billboards.
-const [carTpl, treeModel, billboardModel] = await Promise.all([
+const [carTpl, botCars, treeModel, billboardModel] = await Promise.all([
   loadCarTemplate(),
+  loadCarPack(),
   loadSceneryModel('low_poly_trees.glb'),
   loadSceneryModel('low-poly_billboard_pack.glb'),
 ]);
 setCarTemplate(carTpl);
+setCarPack(botCars);
 
 const $ = (id) => document.getElementById(id);
 
