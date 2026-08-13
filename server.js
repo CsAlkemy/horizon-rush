@@ -1,4 +1,4 @@
-// HORIZON RUSH — LAN server.
+// NOXRUSH — LAN server.
 // Serves the game, relays player state over WebSocket, simulates AI opponents,
 // and runs the race state machine (lobby -> countdown -> race -> results).
 //
@@ -234,7 +234,7 @@ function rosterOf(race) {
 }
 
 function placeGrid(race) {
-  // AI up front, humans at the back of the grid (authentic Horizon start).
+  // AI up front, humans at the back of the grid (a proper comeback drive).
   const ids = [...race.ai.map(a => a.id), ...race.members];
   const slots = [];
   ids.forEach((id, i) => {
@@ -612,7 +612,7 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('\n  HORIZON RUSH — LAN racing server');
+  console.log('\n  NOXRUSH — LAN racing server');
   console.log(`  Local:   http://localhost:${PORT}`);
   for (const ip of lanIPs()) console.log(`  Friend:  http://${ip}:${PORT}`);
   console.log(`  Maps: ${TRACKS.map(t => t.name).join(', ')}`);

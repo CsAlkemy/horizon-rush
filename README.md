@@ -1,20 +1,22 @@
-# HORIZON RUSH
+# NOXRUSH
 
-A browser-based LAN arcade racer in the spirit of Forza Horizon — smooth
-antialiased 3D (no pixel art), three circuits (coastal, alpine, desert), ten
-drivatar-style AI opponents, and a Horizon-style HUD with skill chains.
+A browser-based LAN arcade racer — smooth antialiased 3D (no pixel art), three
+circuits (coastal, alpine, desert), ten adaptive AI opponents, and a
+festival-style HUD with skill chains.
 
 Runs entirely on your machine. Your friend joins from their own browser over
 your local network — no accounts, no internet, no build step.
 
 ## Running it
 
+From the repo directory:
+
 ```bash
-npm install --prefix horizon-rush
+npm install
 ```
 
 ```bash
-npm start --prefix horizon-rush
+npm start
 ```
 
 The server prints the two addresses you need:
@@ -164,7 +166,7 @@ sees your lights come on.
 Set via environment variables:
 
 ```bash
-LAPS=5 PORT=8080 npm start --prefix horizon-rush
+LAPS=5 PORT=8080 npm start
 ```
 
 Graphics quality (High/Medium/Low) is per-player in the lobby — it changes

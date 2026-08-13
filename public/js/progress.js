@@ -2,6 +2,11 @@
 // personal bests and medals, and the paint-unlock rules. Pure data/logic — no
 // DOM, no three.js — so the game and the lobby UI both lean on it.
 
+// The `hr_` prefix predates the rename to NoxRush and is deliberately kept:
+// these keys are the only copy of a player's level, XP, personal bests and
+// medals, so renaming them to `rb_` would silently wipe every existing player's
+// progression. Same reasoning for the other hr_* keys (name, paint, map, mode,
+// cam, quality, ghost, daily, music). Change them only with a migration step.
 const KEY = 'hr_progress';
 
 function load() {

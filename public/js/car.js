@@ -1,5 +1,5 @@
 // Car mesh factory — smooth rounded shapes + clearcoat paint so cars read
-// glossy under the environment map, Forza-style. Nose faces +Z.
+// glossy under the environment map, showroom-style. Nose faces +Z.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { instantiateTemplate } from './carModels.js';

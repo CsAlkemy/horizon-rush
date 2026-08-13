@@ -1,6 +1,6 @@
 // Optional glTF/GLB car models.
 //
-// Drop a .glb into horizon-rush/models/ and describe it in models/manifest.json
+// Drop a .glb into the repo's models/ directory and describe it in models/manifest.json
 // to replace the built-in procedural car. With no manifest present the game
 // silently uses the procedural body, so this is entirely opt-in.
 //
@@ -29,7 +29,7 @@ export async function loadSceneryModel(file) {
     const gltf = await new GLTFLoader().loadAsync('/models/' + file);
     return gltf.scene;
   } catch (e) {
-    console.warn(`[horizon-rush] ${file} failed to load:`, e.message);
+    console.warn(`[noxrush] ${file} failed to load:`, e.message);
     return null;
   }
 }
@@ -91,7 +91,7 @@ function buildLiveryCache(tex) {
     lumSum += lum; lumN++;
   }
   const lumBase = lumN ? lumSum / lumN : 0.5;
-  console.info(`[horizon-rush] livery: hue ${hue}°, ${lumN} px of ${w}x${h} recolourable`);
+  console.info(`[noxrush] livery: hue ${hue}°, ${lumN} px of ${w}x${h} recolourable`);
   return { w, h, src, mask, lumBase };
 }
 
@@ -175,10 +175,10 @@ export async function loadCarTemplate() {
 
     wrapper.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } });
     if (cfg.steeringWheel) extractSteeringWheel(wrapper, cfg.steeringWheel);
-    console.info(`[horizon-rush] loaded car model ${cfg.file} (scale ${scale.toFixed(3)})`);
+    console.info(`[noxrush] loaded car model ${cfg.file} (scale ${scale.toFixed(3)})`);
     return { scene: wrapper, cfg };
   } catch (e) {
-    console.warn('[horizon-rush] car model failed to load, using procedural body:', e.message);
+    console.warn('[noxrush] car model failed to load, using procedural body:', e.message);
     return null;
   }
 }
@@ -209,7 +209,7 @@ export async function loadCarPack() {
   try {
     gltf = await new GLTFLoader().loadAsync('/models/' + cfg.file);
   } catch (e) {
-    console.warn('[horizon-rush] bot car pack failed to load:', e.message);
+    console.warn('[noxrush] bot car pack failed to load:', e.message);
     return [];
   }
 
@@ -217,7 +217,7 @@ export async function loadCarPack() {
     ? gltf.scene.getObjectByName(cfg.container)
     : gltf.scene;
   if (!container || !container.children.length) {
-    console.warn(`[horizon-rush] bot pack container "${cfg.container}" not found`);
+    console.warn(`[noxrush] bot pack container "${cfg.container}" not found`);
     return [];
   }
   gltf.scene.updateMatrixWorld(true);
@@ -278,7 +278,7 @@ export async function loadCarPack() {
     });
   }
 
-  console.info(`[horizon-rush] bot car pack ${cfg.file}: ` +
+  console.info(`[noxrush] bot car pack ${cfg.file}: ` +
     `${templates.length} cars (${templates.map(t => t.name).join(', ')})`);
   return templates;
 }
@@ -388,7 +388,7 @@ function splitMergedWheels(wrapper, nodeNames) {
 function extractSteeringWheel(wrapper, sw) {
   const marker = wrapper.getObjectByName(sw.marker);
   if (!marker || !marker.isMesh) {
-    console.warn(`[horizon-rush] steeringWheel marker "${sw.marker}" not found`);
+    console.warn(`[noxrush] steeringWheel marker "${sw.marker}" not found`);
     return;
   }
   wrapper.updateMatrixWorld(true);
@@ -555,7 +555,7 @@ function extractSteeringWheel(wrapper, sw) {
     pivot.position.copy(c2);
     for (const ch of pivot.children) ch.position.sub(delta);
   }
-  console.info(`[horizon-rush] steering wheel: carved ${carved} tris, hub at ` +
+  console.info(`[noxrush] steering wheel: carved ${carved} tris, hub at ` +
     `${pivot.position.toArray().map(n => n.toFixed(3))}`);
 }
 

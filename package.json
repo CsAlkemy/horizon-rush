@@ -1,9 +1,9 @@
 {
-  "name": "horizon-rush",
+  "name": "noxrush",
   "version": "1.0.0",
   "type": "module",
   "private": true,
-  "description": "LAN arcade racer for the browser — Forza Horizon inspired",
+  "description": "Browser-based arcade racer — festival-style circuit racing over LAN",
   "scripts": {
     "start": "node server.js"
   },

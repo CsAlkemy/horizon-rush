@@ -1110,7 +1110,7 @@ export class Game {
     const cockpit = this.cockpitOffset();
 
     if (this.camMode === 'chase') {
-      // Close enough that the car fills the frame the way a Horizon chase cam
+      // Close enough that the car fills the frame the way an arcade chase cam
       // does; it eases back a little at speed for a sense of pace.
       const dist = 5.9 + Math.min(speed / CAR.topSpeed, 1) * 0.9;
       const height = 2.45;

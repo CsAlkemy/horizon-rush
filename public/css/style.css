@@ -1,4 +1,4 @@
-/* HORIZON RUSH — HUD + menus. Forza Horizon-inspired: clean white italic type,
+/* NOXRUSH — HUD + menus. Modern-arcade-racer look: clean white italic type,
    magenta accent, cyan progress, yellow skill text. DOM HUD stays crisp at any
    resolution. */
 :root {
@@ -210,11 +210,11 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 .lobby-card::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.32); background-clip: content-box; }
 
 .logo { text-align: center; font-style: italic; font-weight: 800; letter-spacing: .02em; }
-.logo-h {
+.logo-a {
   font-size: 44px; background: linear-gradient(92deg, #35e0e6, #3f8cff);
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.logo-r { font-size: 44px; color: var(--accent); margin-left: 10px; }
+.logo-b { font-size: 44px; color: var(--accent); margin-left: 0; }
 .tagline { text-align: center; font-size: 11px; letter-spacing: .3em; opacity: .6; margin: 4px 0 18px; }
 
 .lobby-row { margin-bottom: 13px; }
@@ -504,8 +504,8 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
   }
   .lobby-card { max-height: 72vh; padding: 20px 22px 16px; }
   /* 44px of italic display type overflows a phone-width card. */
-  .logo-h, .logo-r { font-size: 32px; }
-  .logo-r { margin-left: 6px; }
+  .logo-a, .logo-b { font-size: 32px; }
+  .logo-b { margin-left: 0; }
   .tagline { letter-spacing: .14em; margin-bottom: 14px; }
   .seg { flex-direction: column; }
   .seg-btn { flex-direction: row; align-items: baseline; gap: 8px; }

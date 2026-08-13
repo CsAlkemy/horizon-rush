@@ -125,9 +125,9 @@ function billboardTexture(h = 640) {
     g.fillStyle = '#fff';
     g.font = `italic 900 ${Math.round(h * 0.6)}px "Segoe UI", Arial, sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('R', w / 2, h / 2 - h * 0.03);
+    g.fillText('N', w / 2, h / 2 - h * 0.03);
     g.font = `italic 800 ${Math.round(h * 0.1)}px "Segoe UI", Arial, sans-serif`;
-    g.fillText('HORIZON RUSH', w / 2, h - h * 0.11);
+    g.fillText('NOXRUSH', w / 2, h - h * 0.11);
   });
 }
 
@@ -142,7 +142,7 @@ function bannerTexture() {
     g.fillStyle = '#fff';
     g.font = 'italic 900 190px "Segoe UI", Arial, sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('HORIZON RUSH', w / 2, h / 2 + 8);
+    g.fillText('NOXRUSH', w / 2, h / 2 + 8);
   });
 }
 

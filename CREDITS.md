@@ -31,13 +31,29 @@ merged four-wheel meshes cut into per-corner wheels, and its `Paint` node
 recoloured per driver. Used for the AI grid only; the player drives
 `kestrel_gt.glb`. Cleared for commercial use with this attribution.
 
-> **Trademark caveat, distinct from the licence.** CC-BY covers copyright in the
-> models; it grants nothing regarding trade dress or trademarks. These cars are
-> recognisable real-world designs and the pack's own node names are the brands
-> (`Ferrari`, `Mercedes`, `Ford`, `Land Rover`) — those strings ship inside the
-> .glb. Unlike `kestrel_gt.glb` they have **not** been de-badged or reshaped, so
-> the residual-resemblance risk accepted for the player's car applies here
-> sevenfold. Tracked in `RELEASE_CHECKLIST.md`.
+**De-branded 2026-08-13** (`scripts/rebrand-glb.mjs`): all 14 car node names in
+the .glb were marque or model names of the real cars — `Zenvo`, `Sterrato`,
+`Artura`, `Mercedes`, `Ford`, `Ferrari`, `Land Rover` — and shipped inside the
+file. They now carry fictional names, in the spirit of the player car's
+"Kestrel GT":
+
+| In-file name | Was | Body style |
+| --- | --- | --- |
+| `Vantor` | Zenvo | angular hypercar |
+| `Dunecross` | Sterrato | lifted rally supercar |
+| `Aerix` | Artura | mid-engine coupe |
+| `Bastion` | Mercedes | boxy 4x4 |
+| `Halcyon` | Ford | hot hatch |
+| `Vulpine` | Ferrari | low hypercar |
+| `Warden` | Land Rover | luxury SUV |
+
+Geometry, materials and UVs are untouched — only the name strings changed.
+
+> **Residual trademark caveat.** CC-BY covers copyright in the meshes; it grants
+> nothing regarding trade dress. Renaming removes the brand *assertion* from the
+> file, but the shapes are still recognisable real-world designs, and unlike
+> `kestrel_gt.glb` they have not been reshaped or de-badged in-mesh. Tracked in
+> `RELEASE_CHECKLIST.md`.
 
 ### Trees (`models/low_poly_trees.glb`)
 "Low poly trees"
