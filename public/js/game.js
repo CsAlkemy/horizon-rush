@@ -1,8 +1,8 @@
 // Game orchestrator: rendering, local physics, remote interpolation, camera,
 // skill chains, checkpoints/laps, and the race state machine (client side).
 import * as THREE from 'three';
-import { buildTrack, TOTAL_LAPS, wrapAngle, ROAD_Y } from '/shared/track.js';
-import { stepCar, CAR } from '/shared/physics.js';
+import { buildTrack, TOTAL_LAPS, wrapAngle, ROAD_Y } from '../shared/track.js';
+import { stepCar, CAR } from '../shared/physics.js';
 import { buildWorld } from './world.js';
 import { createCar, animateCar, setLights, setPaint, carTemplateConfig } from './car.js';
 import { HUD, toast, fmtTime } from './hud.js';

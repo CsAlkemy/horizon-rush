@@ -7,7 +7,8 @@ import { toast } from './hud.js';
 import { loadCarTemplate, loadCarPack, loadSceneryModel } from './carModels.js';
 import { setCarTemplate, setCarPack } from './car.js';
 import { bindTouchUI } from './input.js';
-import { TRACKS } from '/shared/track.js';
+import { PORTAL } from './build.js';
+import { TRACKS } from '../shared/track.js';
 import { getProgress, xpForLevel, paintUnlocked, paintLockLevel, pbFor, addXP } from './progress.js';
 
 // Opt-in glTF models. Absent -> procedural car / trees / billboards.
@@ -33,6 +34,17 @@ if (!paintUnlocked(PAINTS.indexOf(paint))) paint = PAINTS[0];
 const MODES = ['bot', 'friends', 'trial', 'champ'];
 let mode = localStorage.getItem('hr_mode') || 'bot';
 if (!MODES.includes(mode)) mode = 'bot';
+
+// A portal build is a static bundle in an iframe: there is no server, so FRIENDS,
+// party codes, server records and the LAN address box cannot work. They are
+// suppressed by a body class (see style.css), NOT removed: the lobby attaches
+// listeners to the party buttons at load, so deleting those nodes throws. The CSS
+// uses !important under body.portal, so the lobby's own hidden-class toggles
+// cannot bring them back either.
+if (PORTAL) {
+  if (mode === 'friends') mode = 'bot';
+  document.body.classList.add('portal');
+}
 // What the server should treat us as — it only knows bot/friends.
 const serverMode = () => (mode === 'friends' ? 'friends' : 'bot');
 
@@ -248,7 +260,7 @@ function paintModeSeg() {
   for (const b of document.querySelectorAll('#modeSeg [data-mode]')) {
     b.classList.toggle('sel', b.dataset.mode === mode);
   }
-  $('partyBox').classList.toggle('hidden', mode !== 'friends');
+  $('partyBox')?.classList.toggle('hidden', mode !== 'friends');
 }
 for (const b of document.querySelectorAll('#modeSeg [data-mode]')) {
   b.addEventListener('click', () => {
@@ -309,7 +321,7 @@ showStep(localStorage.getItem('hr_name') ? 4 : 1);
 
 // ---------------------------------------------------------------- party codes
 function renderPartyBox() {
-  $('partyBox').classList.toggle('hidden', mode !== 'friends');
+  $('partyBox')?.classList.toggle('hidden', mode !== 'friends');
   $('partyNone').classList.toggle('hidden', !!party);
   $('partyYes').classList.toggle('hidden', !party);
   if (party) $('partyCode').textContent = party;
@@ -372,7 +384,8 @@ function copyText(text) {
 }
 
 // ---------------------------------------------------------------- LAN address
-fetch('/info').then(r => r.json()).then(info => {
+// `/info` is served by server.js, so on a static host it is a guaranteed 404.
+if (!PORTAL) fetch('/info').then(r => r.json()).then(info => {
   const urls = (info.ips.length ? info.ips : ['<this-machine-ip>']).map(ip => `http://${ip}:${info.port}`);
   $('lanUrls').innerHTML = urls.map(u =>
     `<div class="lan-url" data-url="${u}"><span>${u}</span><span class="lan-copy">COPY</span></div>`).join('');
@@ -582,12 +595,14 @@ $('dailyGo').addEventListener('click', () => {
 // selected circuit. Hidden while offline (there's no server to remember).
 function requestRecords() {
   if (net.connected && joined) net.send({ t: 'records', map });
-  $('recordsBox').classList.toggle('hidden', !net.connected);
+  // The portal build deletes #recordsBox outright (no server keeps records), so
+  // this has to tolerate the node being absent rather than assume it.
+  $('recordsBox')?.classList.toggle('hidden', !net.connected);
 }
 net.on('records', (m) => {
   if (m.map !== map) return;
-  $('recTrack').textContent = MAP_SHORT[map] || map;
-  $('recordsList').innerHTML = m.rows.length
+  $('recTrack') && ($('recTrack').textContent = MAP_SHORT[map] || map);
+  if ($('recordsList')) $('recordsList').innerHTML = m.rows.length
     ? m.rows.map((r, i) => `
         <div class="lp-row rec-row">
           <span class="rec-pos">${i + 1}</span>

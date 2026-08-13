@@ -584,3 +584,13 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
   .hud-speedo { transform: scale(.72); transform-origin: bottom right; bottom: 128px; }
   .nitro-wrap { width: 150px; bottom: 300px; }
 }
+
+/* ---------------------------------------------------------------- portal build
+   Static bundle on a game portal: there is no server behind it, so anything that
+   needs one is suppressed. !important because the lobby toggles a .hidden class
+   on some of these, and the portal build must win that fight unconditionally. */
+body.portal .mode-card[data-mode="friends"],
+body.portal #partyBox,
+body.portal #lanBox,
+body.portal #chipLink,
+body.portal #recordsBox { display: none !important; }

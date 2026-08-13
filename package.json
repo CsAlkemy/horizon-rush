@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "private": true,
-  "description": "Browser-based arcade racer — festival-style circuit racing over LAN",
+  "description": "Browser-based arcade racer \u2014 festival-style circuit racing over LAN",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build": "node scripts/build-web.js",
+    "check": "node scripts/check-dist.mjs"
   },
   "engines": {
     "node": ">=18"

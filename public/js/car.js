@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { instantiateTemplate } from './carModels.js';
-import { CAR } from '/shared/physics.js';
+import { CAR } from '../shared/physics.js';
 
 // Set once at boot by main.js when models/manifest.json is present.
 let template = null;

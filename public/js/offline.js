@@ -4,9 +4,9 @@
 // message protocol as the server — it receives the client's normal `send()`
 // traffic and delivers `grid`/`count`/`go`/`snap`/`results` back through the
 // Net event bus — so the Game class cannot tell the difference.
-import { buildTrack, TOTAL_LAPS, GRID_SLOTS } from '/shared/track.js';
-import { stepCar } from '/shared/physics.js';
-import { AI_ROSTER, makeAI, aiThink } from '/shared/ai.js';
+import { buildTrack, TOTAL_LAPS, GRID_SLOTS } from '../shared/track.js';
+import { stepCar } from '../shared/physics.js';
+import { AI_ROSTER, makeAI, aiThink } from '../shared/ai.js';
 
 const AI_DT = 1 / 30;
 const PLAYER_ID = 'you';

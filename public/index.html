@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NOXRUSH — Arcade Racing</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏁</text></svg>">
-<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="css/style.css">
 <script type="importmap">
 {
   "imports": {
-    "three": "/vendor/three/build/three.module.js",
-    "three/addons/": "/vendor/three/examples/jsm/"
+    "three": "./vendor/three/build/three.module.js",
+    "three/addons/": "./vendor/three/examples/jsm/"
   }
 }
 </script>
@@ -209,7 +209,7 @@
         <div id="lobbyList"></div>
       </div>
 
-      <div class="lan-box">
+      <div class="lan-box" id="lanBox">
         <div class="lp-title">FRIENDS JOIN AT</div>
         <div id="lanUrls"><div class="lan-url">…</div></div>
         <div class="lan-hint">Same Wi-Fi/network required — click an address to copy it. Not loading for them? Allow node/terminal through this machine's firewall; guest and hotel Wi-Fi often block device-to-device traffic.</div>
@@ -245,6 +245,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="/js/main.js"></script>
+<script type="module" src="js/main.js"></script>
 </body>
 </html>

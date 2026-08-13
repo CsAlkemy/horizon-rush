@@ -19,14 +19,16 @@ const DEFAULT_ROT = { '+z': 0, '-z': Math.PI, '+x': -Math.PI / 2, '-x': Math.PI 
 
 // Scenery model (e.g. models/tree.glb). Returns the loaded scene or null.
 export async function loadSceneryModel(file) {
+  // The HEAD probe only exists to keep an absent optional model from logging a
+  // 404. Treat an explicit non-ok status as "not there", but if the probe itself
+  // fails — some static hosts and CDNs refuse HEAD — fall through and let the
+  // real load decide, rather than silently dropping the scenery.
   try {
-    const head = await fetch('/models/' + file, { method: 'HEAD' });
+    const head = await fetch('models/' + file, { method: 'HEAD' });
     if (!head.ok) return null;
-  } catch {
-    return null;
-  }
+  } catch { /* probe unusable; attempt the load anyway */ }
   try {
-    const gltf = await new GLTFLoader().loadAsync('/models/' + file);
+    const gltf = await new GLTFLoader().loadAsync('models/' + file);
     return gltf.scene;
   } catch (e) {
     console.warn(`[noxrush] ${file} failed to load:`, e.message);
@@ -131,7 +133,7 @@ function makeLiveryTexture(cache, srcTex) {
 // there is no manifest at all, which is the "use procedural cars" signal.
 async function readManifest() {
   try {
-    const res = await fetch('/models/manifest.json', {
+    const res = await fetch('models/manifest.json', {
       cache: 'no-cache',
       signal: AbortSignal.timeout(2500),
     });
@@ -148,7 +150,7 @@ export async function loadCarTemplate() {
   if (!cfg || !cfg.file) return null;
 
   try {
-    const gltf = await new GLTFLoader().loadAsync('/models/' + cfg.file);
+    const gltf = await new GLTFLoader().loadAsync('models/' + cfg.file);
     const root = gltf.scene;
 
     // Orient so the nose points +Z, then scale to the requested length and
@@ -207,7 +209,7 @@ export async function loadCarPack() {
 
   let gltf;
   try {
-    gltf = await new GLTFLoader().loadAsync('/models/' + cfg.file);
+    gltf = await new GLTFLoader().loadAsync('models/' + cfg.file);
   } catch (e) {
     console.warn('[noxrush] bot car pack failed to load:', e.message);
     return [];

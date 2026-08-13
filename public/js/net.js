@@ -2,6 +2,8 @@
 // offline fallback: when `local` (a LocalRace) is active, outbound traffic is
 // routed to it instead of the socket, and it delivers server-style messages
 // back through `deliver()` — the rest of the game can't tell the difference.
+import { PORTAL } from './build.js';
+
 export class Net {
   constructor() {
     this.ws = null;
@@ -36,8 +38,9 @@ export class Net {
   }
 
   connect() {
-    // `?offline=1` runs fully serverless (portal/static builds and testing).
-    if (new URLSearchParams(location.search).get('offline')) return;
+    // A portal build has no server to reach, and `?offline=1` forces the same
+    // path for testing. Either way: never open a socket, and let LocalRace serve.
+    if (PORTAL || new URLSearchParams(location.search).get('offline')) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     try { this.ws = new WebSocket(`${proto}://${location.host}`); } catch { this.scheduleRetry(); return; }
     this.ws.onopen = () => { this.connected = true; this.emit('open'); };

@@ -2,7 +2,7 @@
 // Everything is generated (canvas textures, procedural terrain) — no assets.
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { ROAD_HALF, SHOULDER, ROAD_Y } from '/shared/track.js';
+import { ROAD_HALF, SHOULDER, ROAD_Y } from '../shared/track.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 

@@ -1,12 +1,23 @@
 // Audio: synthesized engine/wind/skid beds plus recorded car foley one-shots
 // from public/audio (see public/audio/README.md for the file mapping), and a
 // background-music channel (synthesized lofi, or a user-supplied music.mp3).
+import { HAS_FOLEY } from './build.js';
+
 let ctx = null, master = null, muted = false;
 let engine = null, wind = null, skid = null;
 let noiseBuf = null;   // shared white noise (wind/skid/drums/vinyl)
 
 // ---------------------------------------------------------------- sample bank
-const SAMPLES = {
+// Engine loops always ship (Pixabay Content License). The foley one-shots are
+// split out because a build can legitimately leave them behind — every cue that
+// uses them has a synth stand-in, so `HAS_FOLEY: false` costs nothing but the
+// recordings, and skipping the fetches keeps a static build from requesting
+// files that were never copied.
+const ENGINE_SAMPLES = {
+  engineLow:  'engine-low.wav',
+  engineHigh: 'engine-high.wav',
+};
+const FOLEY_SAMPLES = {
   ignition:   'ignition.wav',
   impact:     'impact.wav',
   scrape:     'scrape.wav',
@@ -14,9 +25,10 @@ const SAMPLES = {
   gridUp:     'grid-up.wav',
   panel:      'panel.wav',
   reset:      'reset.wav',
-  engineLow:  'engine-low.wav',
-  engineHigh: 'engine-high.wav',
 };
+const SAMPLES = HAS_FOLEY
+  ? { ...FOLEY_SAMPLES, ...ENGINE_SAMPLES }
+  : { ...ENGINE_SAMPLES };
 
 // Measured fundamentals of the two engine loops (see public/audio/README.md).
 // Playback rate is derived from these, so they must match the shipped files.
@@ -29,7 +41,7 @@ const decoded = {};   // name -> AudioBuffer, once a context is available
 // Fetching needs no AudioContext, so start immediately at page load; decoding
 // happens as soon as the first user gesture lets us create the context.
 for (const [name, file] of Object.entries(SAMPLES)) {
-  fetch('/audio/' + file)
+  fetch('audio/' + file)
     .then(r => (r.ok ? r.arrayBuffer() : null))
     .then(a => { if (a) { encoded[name] = a; if (ctx) decodeOne(name); } })
     .catch(() => {});
@@ -186,9 +198,9 @@ async function startMusic() {
   music = { gain, mode: 'lofi', bars: 0 };
 
   try {
-    const head = await fetch('/audio/music.mp3', { method: 'HEAD' });
+    const head = await fetch('audio/music.mp3', { method: 'HEAD' });
     if (head.ok) {
-      const el = new Audio('/audio/music.mp3');
+      const el = new Audio('audio/music.mp3');
       el.loop = true;
       ctx.createMediaElementSource(el).connect(gain);
       await el.play().catch(() => {});

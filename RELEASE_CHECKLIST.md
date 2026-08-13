@@ -23,9 +23,12 @@ Requirements source: https://docs.crazygames.com/requirements/intro/
       now a safe one-liner** — it drops ~1.3 MB and clears the licensing
       blocker below at the cost of the two recordings worth keeping
       (`impact`, `ignition`)
-- [ ] Decide: ship the synth stand-ins, or source CC0/Pixabay replacements for
-      `impact.wav` and `ignition.wav` (the only two that beat their synth
-      version) and delete the other five outright
+- [x] Unlicensed foley excluded from the build (2026-08-13). The 7 files stay in
+      the repo for LAN play but `scripts/build-web.js` leaves them out of `dist/`
+      by default, and `audio.js` skips fetching them when the build says
+      `foley: false`, so a published ZIP contains no unlicensed audio and makes no
+      requests for it. Every cue runs on its synth stand-in. `--with-foley`
+      re-includes them for a private bundle only.
       PROVENANCE (checked 2026-08-12): each file's only embedded metadata is a
       RIFF `INFO/INAM` + id3 `TIT2` title of the form
       `AV_STARTUP_ClassicSupercar_01.assets` — the `.assets` suffix is Unity's
@@ -34,6 +37,9 @@ Requirements source: https://docs.crazygames.com/requirements/intro/
       copyright, vendor or library field is present in any of the seven, and
       the `AV_*` names match no public library. Treat as unlicensed: there is
       no clearance to document and no rights-holder to ask
+- [ ] Optional: replace `impact.wav` and `ignition.wav` with Pixabay equivalents
+      (`node scripts/install-foley.mjs --list`) — the only two whose recording
+      clearly beats its synth version. Then they could ship again
 - [x] `CREDITS.md` matches the shipped asset set — the stale
       `generic_passenger_car_pack.glb` block was removed (2026-08-12). Shipped
       models are `kestrel_gt.glb`, `low_poly_trees.glb` and
@@ -65,44 +71,56 @@ Requirements source: https://docs.crazygames.com/requirements/intro/
       `--prefix horizon-rush` calls are gone)
 - [ ] Confirm every remaining asset is CC0/CC-BY-cleared for commercial use
 
-## 2 · Static build (`dist/` from a build script)
+## 2 · Static build (`npm run build` -> `dist/`)
 
-- [ ] Write `scripts/build-web.js` producing a self-contained `dist/` with
-      `index.html` at the root
-- [ ] Vendor the three.js files the import map needs (currently served from
-      `node_modules` by `server.js` at `/vendor/three/`)
-- [ ] Convert all absolute paths to relative — portals host games in
-      iframes/subpaths. Known sites: `index.html` (`/css/style.css`,
-      `/js/main.js`, both import-map entries), `/shared/*.js` imports in
-      `main.js`/`car.js`/`ai`-side files, `/models/` + `/models/manifest.json`
-      in the model loader, `/audio/` in `audio.js`
-- [ ] Build `dist/` from `public/` + `models/*.glb` + `manifest.json` only —
-      dev-only files (`models/README.md`, `public/audio/README.md`) stay in the
-      repo and out of the ZIP
-- [ ] Verify the game boots from `dist/` with a dumb static server
-      (`npx serve dist`) and no requests to any external host
-- [ ] ZIP budget: initial download ≤ 50 MB, total ≤ 250 MB, ≤ 1,500 files —
-      current assets are ~18 MB across 33 files, so both are clear
-- [ ] Stretch: first playable ≤ 20 MB for mobile-homepage eligibility. Whole
-      build already fits, but `kestrel_gt.glb` alone is 11 MB — Draco or
-      meshopt compression on it buys the most headroom
+- [x] `scripts/build-web.js` produces a self-contained `dist/` with `index.html`
+      at the root (`npm run build`). Copies `public/` as the bundle root, plus
+      `shared/`, `models/*.glb` and the manifest; dev READMEs and `.DS_Store`
+      never ship. Warns about stray files at the bundle root — which is how a
+      2 MB screenshot left in `public/` was caught before it shipped
+- [x] three.js vendored by resolving the import graph, not by bulk copy: core
+      plus the 4 addons actually reachable (`GLTFLoader`, `RoundedBoxGeometry`,
+      `RoomEnvironment`, `BufferGeometryUtils`) = **1.40 MB / 5 files**. Copying
+      all of `examples/jsm` would have been 13 MB / 368 files
+- [x] All 20 absolute asset paths made relative, fixed in source so one code path
+      serves both builds. Note the split that matters: `import` specifiers resolve
+      against the *module* URL (`../shared/x.js`), but `fetch()` and the glTF
+      loader resolve against the *document* URL, so those are document-relative
+      (`models/x.glb`) — a `../` there would climb out of a portal's subpath
+- [x] Verified with `npm run check` (`scripts/check-dist.mjs`): serves `dist/`
+      **on a subpath** in headless Chrome and asserts 9 things — every request
+      stays on-origin, no 404s or failed loads, no page exceptions, lobby renders,
+      player car + bot pack + both scenery models fetched, portal flag active, and
+      the server-only UI is not visible. All 9 pass
+- [x] Size budgets pass: **20.59 MB / 31 files** against 50 MB and 1,500
+- [ ] Stretch: first playable <= 20 MB for mobile-homepage eligibility. Currently
+      0.59 MB over. `kestrel_gt.glb` is 11.1 MB of the 20.59, so Draco or meshopt
+      on that one file is the only lever with real headroom
 
 ## 3 · Portal mode (no-server UI)
 
-- [ ] Add a portal/static flag (build-time or "no server reachable" detection)
-- [ ] Hide FRIENDS mode, party codes, "FRIENDS JOIN AT" box, firewall hints
-- [x] Title and tagline de-LANned by the rename (2026-08-13): title is now
-      "NOXRUSH — Arcade Racing" and the tagline "ARCADE FESTIVAL RACING"
-- [ ] Remove the remaining "LAN" strings — `index.html:49` chip "LAN ●", plus
-      "OPEN LAN" / "needs the LAN server" in `main.js` (278, 407, 426, 684).
-      These are functional hints for the LAN build, so they should be hidden by
-      the portal flag rather than deleted outright
-- [ ] Make the `/info` fetch (`main.js:373`, LAN-IP lookup) a no-op in portal
-      mode so it doesn't 404 on a static host
-- [ ] Land players in gameplay fast — make the ⚡ QUICK RACE path the default
-      entry (Full Launch QA checks this)
-- [ ] Verify touch controls + gamepad still work in an iframe
-- [ ] Verify localStorage progression works inside the portal iframe
+- [x] Portal flag: the build writes `js/build-config.js` setting
+      `window.__BUILD__`, read by `public/js/build.js`. The LAN build ships no
+      such file, so it keeps every feature. `?portal=1` forces portal behaviour
+      against the dev server for testing; the older `?offline=1` still skips just
+      the socket
+- [x] FRIENDS mode, party codes, the "FRIENDS JOIN AT" box, firewall hints, the
+      `LAN ●` chip and the server-records panel are all suppressed in portal
+      builds. Done with `body.portal` + `display: none !important` in `style.css`,
+      deliberately **not** by removing the nodes: the lobby attaches listeners to
+      the party buttons at load, so deleting them threw. `!important` also means
+      the lobby's own `.hidden` toggles cannot bring them back
+- [x] `mode` is forced off `friends` in portal builds, which also makes the
+      "FRIENDS needs the LAN server" status line unreachable (it is guarded by
+      `!solo`)
+- [x] The `/info` LAN-address lookup is skipped entirely in portal builds
+- [x] Title and tagline de-LANned: "NOXRUSH — Arcade Racing" / "ARCADE FESTIVAL
+      RACING"
+- [ ] Land players in gameplay fast — QUICK RACE exists on every step but is not
+      the default entry (Full Launch QA checks time-to-gameplay)
+- [ ] Verify touch controls + gamepad still work in a real cross-origin iframe
+- [ ] Verify localStorage progression survives inside the portal iframe (some
+      embedding contexts partition storage)
 
 ## 4 · Content & QA pass
 
