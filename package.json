@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "build": "node scripts/build-web.js",
-    "check": "node scripts/check-dist.mjs"
+    "check": "node scripts/check-dist.mjs",
+    "check:iframe": "node scripts/check-iframe.mjs",
+    "zip": "node scripts/make-zip.mjs"
   },
   "engines": {
     "node": ">=18"

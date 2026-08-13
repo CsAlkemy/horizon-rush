@@ -14,8 +14,19 @@
 // }
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const DEFAULT_ROT = { '+z': 0, '-z': Math.PI, '+x': -Math.PI / 2, '-x': Math.PI / 2 };
+
+// Every .glb load goes through here. `kestrel_gt.glb` ships meshopt-compressed
+// (EXT_meshopt_compression, ~11.6 MB -> 5.5 MB), and a loader without the
+// decoder attached fails that file outright rather than degrading — so the
+// decoder is wired once, here, instead of at each call site. The decoder is
+// ~25 KB and inert for models that do not use the extension, and the build
+// vendors it automatically by following this `three/addons/` import.
+function gltfLoader() {
+  return new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+}
 
 // Scenery model (e.g. models/tree.glb). Returns the loaded scene or null.
 export async function loadSceneryModel(file) {
@@ -28,7 +39,7 @@ export async function loadSceneryModel(file) {
     if (!head.ok) return null;
   } catch { /* probe unusable; attempt the load anyway */ }
   try {
-    const gltf = await new GLTFLoader().loadAsync('models/' + file);
+    const gltf = await gltfLoader().loadAsync('models/' + file);
     return gltf.scene;
   } catch (e) {
     console.warn(`[noxrush] ${file} failed to load:`, e.message);
@@ -150,7 +161,7 @@ export async function loadCarTemplate() {
   if (!cfg || !cfg.file) return null;
 
   try {
-    const gltf = await new GLTFLoader().loadAsync('models/' + cfg.file);
+    const gltf = await gltfLoader().loadAsync('models/' + cfg.file);
     const root = gltf.scene;
 
     // Orient so the nose points +Z, then scale to the requested length and
@@ -209,7 +220,7 @@ export async function loadCarPack() {
 
   let gltf;
   try {
-    gltf = await new GLTFLoader().loadAsync('models/' + cfg.file);
+    gltf = await gltfLoader().loadAsync('models/' + cfg.file);
   } catch (e) {
     console.warn('[noxrush] bot car pack failed to load:', e.message);
     return [];

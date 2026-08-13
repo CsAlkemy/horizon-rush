@@ -6,10 +6,10 @@
     "roofpart_1"
   ],
   "wheelNodes": [
-    "volvo_Wheel_Ft_L",
-    "volvo_Wheel_Ft_R",
-    "volvo_Wheel_Bk_L",
-    "volvo_Wheel_Bk_R"
+    "kestrel_Wheel_Ft_L",
+    "kestrel_Wheel_Ft_R",
+    "kestrel_Wheel_Bk_L",
+    "kestrel_Wheel_Bk_R"
   ],
   "lampMaterials": [
     "front_light",

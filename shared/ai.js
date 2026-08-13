@@ -1,4 +1,4 @@
-// Drivatar AI: roster, state factory, and the per-tick driving brain.
+// Rival AI: roster, state factory, and the per-tick driving brain.
 // Shared by the LAN server (online races) and the browser (offline races), so
 // the same field drives identically wherever the race is simulated.
 import { wrapAngle } from './track.js';
@@ -30,14 +30,14 @@ export function makeAI(count) {
     avoid: 0, slow: 1,   // eased traffic-avoidance state (see aiThink)
     finished: false,
     finishTime: 0,
-    // stab: drivatars drive on pure grip — their pace model assumes no
+    // stab: rivals drive on pure grip — their pace model assumes no
     // power-drift, and a full-lock avoidance jink must not slide them.
     input: { steer: 0, throttle: 0, brake: 0, hand: false, stab: true },
   }));
 }
 
 // humanProgress (optional): the leading human's race progress in meters
-// (lap * L + s). Enables gentle rubber-banding — drivatars far ahead of the
+// (lap * L + s). Enables gentle rubber-banding — rivals far ahead of the
 // player back off a touch and stragglers pick up a touch, so finishes stay
 // contested without ever making the field unbeatable (±6% of top speed, and
 // corner speeds are untouched).
@@ -56,7 +56,7 @@ export function aiThink(a, allCars, track, humanProgress = null) {
 
   // Pace is tuned so a competent human starting from the back of the grid can
   // work through the field over three laps — the player's car tops out well
-  // above the quickest drivatar.
+  // above the quickest rival.
   const latA = 9 + a.skill * 5.5;
   const brakeDist = 12 + sp * sp / 42;
   const cAhead = track.curvAheadMax(car.s, brakeDist);

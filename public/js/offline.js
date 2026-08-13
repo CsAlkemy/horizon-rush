@@ -19,7 +19,7 @@ export class LocalRace {
     this.countTimer = null;
   }
 
-  // kind: 'bot' (full drivatar grid) or 'trial' (solo time trial, empty track).
+  // kind: 'bot' (full rival grid) or 'trial' (solo time trial, empty track).
   start(mapId, name, color, kind = 'bot') {
     this.stop();
     this.active = true;

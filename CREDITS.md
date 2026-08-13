@@ -14,11 +14,28 @@ decal quads and their logo texture, and the rear show-lattice were removed, and
 the taillight elements were reshaped (vertically compressed) so the light
 signature no longer matches the donor car.
 
+**De-branded in-file 2026-08-13** (`scripts/rebrand-glb.mjs`): the de-badging
+above removed what a player could *see*, but the file itself still asserted the
+marque — five node names (`volvo_Body`, `volvo_Wheel_×4`) and three material
+names (`lightsbasekspolestarngr_×3`). Those now read `kestrel_*` and
+`bodypanel_*`. `models/manifest.json` pins the four wheel nodes by name and was
+updated in the same step.
+
+The `asset.extras` block still names the donor car, and that is deliberate: it
+carries the CC-BY author, licence, title and source, which the licence obliges
+us to keep and which this file already states publicly. Stripping it would
+trade a trade-dress worry for a licence breach.
+
+**Compressed 2026-08-13**: meshopt (`gltf-transform meshopt`, adding
+`EXT_meshopt_compression` + `KHR_mesh_quantization`), 11.65 MB → 5.50 MB with no
+visible change. The loader attaches `MeshoptDecoder` in `carModels.js`.
+
 > All brand emblems, logos and model-name decals have been removed and detail
-> geometry altered; no trademarked name or mark appears in-game. The overall
-> silhouette still derives from the donor car, so a residual trade-dress
-> resemblance remains — judged acceptable for a stylized arcade game, but the
-> procedural car stays the zero-risk fallback (delete `manifest.json`).
+> geometry altered; no trademarked name or mark appears in-game, and none
+> remains in any name table inside the file. The overall silhouette still
+> derives from the donor car, so a residual trade-dress resemblance remains —
+> judged acceptable for a stylized arcade game, but the procedural car stays the
+> zero-risk fallback (delete `manifest.json`).
 
 ### Bot cars (`models/ultimate_low-poly_car_pack.glb`) — ACTIVE
 "Ultimate Low-Poly Car Pack" (https://skfb.ly/pKnv8) by **ProbablyNotG** is

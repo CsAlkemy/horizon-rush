@@ -6,7 +6,7 @@
 // opponent modes want different start rules: a BOTS race belongs to one driver
 // and starts the moment they are ready, while a FRIENDS race is shared and waits
 // for the group. Several can run at once — one person can be lapping the
-// drivatars while two others run a head-to-head.
+// rivals while two others run a head-to-head.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -402,14 +402,14 @@ function standings(race) {
 }
 
 // ---------------------------------------------------------------- AI driving
-// The drivatar brain lives in shared/ai.js so offline (in-browser) races use
+// The rival brain lives in shared/ai.js so offline (in-browser) races use
 // the exact same field.
 const AI_DT = 1 / 30;
 setInterval(() => {
   for (const race of races.values()) {
     if (race.phase !== 'race') continue;
     const allCars = [...race.ai.map(a => ({ id: a.id, x: a.car.x, z: a.car.z }))];
-    // Leading human's progress feeds the drivatars' rubber-banding.
+    // Leading human's progress feeds the rivals' rubber-banding.
     let humanProgress = null;
     for (const pid of race.members) {
       const p = players.get(pid);

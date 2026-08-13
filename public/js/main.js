@@ -426,9 +426,9 @@ function renderStatus() {
 
   if (solo) {
     const blurb = {
-      bot: 'You against a full grid of drivatars. Starts the moment you hit READY.',
+      bot: 'You against a full grid of rivals. Starts the moment you hit READY.',
       trial: 'Empty track, just you and the clock — your best lap replays as a ghost to chase.',
-      champ: `Three rounds${dir === 'rev' ? ' (reversed)' : ''} — Coastal, Alpine, Sunset — points for positions. Beat the drivatars over a series.`,
+      champ: `Three rounds${dir === 'rev' ? ' (reversed)' : ''} — Coastal, Alpine, Sunset — points for positions. Beat the rivals over a series.`,
     };
     el.textContent = armed ? 'Rolling out…' : blurb[mode];
     $('startNowBtn').classList.add('hidden');
@@ -453,7 +453,7 @@ function renderStatus() {
   if (grp.total < 2) {
     el.textContent = party
       ? `Ready. Waiting for a friend to join party ${party}…`
-      : 'Waiting for another driver to connect — or switch to BOTS to race the drivatars now.';
+      : 'Waiting for another driver to connect — or switch to BOTS to race the rivals now.';
     $('startNowBtn').classList.add('hidden');
     return;
   }
@@ -516,7 +516,7 @@ net.on('grid', () => { armed = false; hideLobby(); });
 
 // ---------------------------------------------------------------- championship
 // A three-race series (one per circuit, in the chosen direction) vs the
-// drivatars, F1-style points, run entirely on the in-browser race engine.
+// rivals, F1-style points, run entirely on the in-browser race engine.
 const CHAMP_PTS = [25, 18, 15, 12, 10, 8, 6, 4, 3, 2, 1, 0];
 let champ = null;   // { round, races: [ids], points: Map(id -> pts), names: Map }
 
@@ -708,7 +708,7 @@ $('readyBtn').addEventListener('click', () => {
   renderStatus();
 });
 
-// ⚡ QUICK RACE — one tap from any step straight onto the grid vs drivatars.
+// ⚡ QUICK RACE — one tap from any step straight onto the grid vs rivals.
 $('quickBtn').addEventListener('click', () => {
   mode = 'bot';
   localStorage.setItem('hr_mode', mode);
