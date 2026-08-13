@@ -1,5 +1,7 @@
 # NOXRUSH
 
+![NoxRush](branding/noxrush.png)
+
 A browser-based LAN arcade racer — smooth antialiased 3D (no pixel art), three
 circuits (coastal, alpine, desert), ten adaptive AI opponents, and a
 festival-style HUD with skill chains.

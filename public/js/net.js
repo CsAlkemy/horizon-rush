@@ -68,6 +68,15 @@ export class Net {
     }, 4000);
   }
 
+  // True when send() has somewhere to go: a live socket, OR the offline engine
+  // standing in for one. Callers must gate on this rather than on `connected` —
+  // `connected` is only ever true for a real socket, so using it silently dropped
+  // every outbound message in an offline/portal build even though send() would
+  // have routed them to the local engine perfectly well.
+  get canSend() {
+    return !!(this.local && this.local.active) || this.connected;
+  }
+
   send(obj) {
     if (this.local && this.local.active) { this.local.handle(obj); return; }
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(obj));

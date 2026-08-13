@@ -1034,9 +1034,13 @@ export class Game {
       impact: ev.impact, offroad: !!ev.offroad, slip: ev.slip || 0,
     });
 
-    // network send
+    // Position/telemetry upstream. Gated on canSend, NOT on `connected`: in an
+    // offline or portal build there is no socket, but the local race engine is
+    // listening — and it needs these updates to know where the player is. Gating
+    // on `connected` meant it never found out, so the player stayed at their grid
+    // slot in the standings and the HUD read last place for the whole race.
     this.sendTimer += dt;
-    if (this.net && this.net.connected && this.sendTimer > 0.04 && this.myId) {
+    if (this.net && this.net.canSend && this.sendTimer > 0.04 && this.myId) {
       this.sendTimer = 0;
       this.net.send({
         t: 'state',
