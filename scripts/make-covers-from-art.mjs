@@ -219,5 +219,16 @@ cover({
   groundPx: 104,
 })
 
+// CrazyGames wants the static cover as frame one of each preview video. The
+// landscape video is 1920x1080, so the landscape cover already serves. The
+// portrait video is 1080x1620 — same 2:3 as the 800x1200 cover but larger, so
+// it is composed again at video size rather than upscaled from the cover.
+cover({
+  name: 'preview-frame-portrait-1080x1620',
+  outW: 1080, outH: 1620,
+  crop: { x: SUBJECT.x, y: 0, w: SUBJECT.w, h: 660 },
+  groundPx: 140,
+})
+
 rmSync(TMP, { recursive: true, force: true })
 console.log('done')
