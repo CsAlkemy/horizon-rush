@@ -73,9 +73,19 @@ $('nameInput').value = localStorage.getItem('hr_name') || '';
 
 // Asset attribution. Collapsed by default; state is not persisted, so every
 // fresh session shows the lobby with the credits available but out of the way.
+const creditsScroll = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 $('creditsToggle').addEventListener('click', () => {
   const open = $('creditsBox').classList.toggle('hidden') === false;
   $('creditsToggle').setAttribute('aria-expanded', String(open));
+  // The toggle is the last thing in a scrollable card, so the panel unfolds
+  // entirely below the fold — opening it looks like nothing happened. Pull the
+  // toggle to the top of the card and the panel fills the space underneath.
+  // rAF so the scroll target is measured after the panel has taken its height.
+  if (open) {
+    requestAnimationFrame(() => {
+      $('creditsToggle').scrollIntoView({ behavior: creditsScroll, block: 'start' });
+    });
+  }
   sfx.click();
 });
 
