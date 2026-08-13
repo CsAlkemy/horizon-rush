@@ -71,6 +71,14 @@ $('musicSel').addEventListener('change', () => {
 
 $('nameInput').value = localStorage.getItem('hr_name') || '';
 
+// Asset attribution. Collapsed by default; state is not persisted, so every
+// fresh session shows the lobby with the credits available but out of the way.
+$('creditsToggle').addEventListener('click', () => {
+  const open = $('creditsBox').classList.toggle('hidden') === false;
+  $('creditsToggle').setAttribute('aria-expanded', String(open));
+  sfx.click();
+});
+
 // game + net + offline fallback (BOTS races run in-browser with no server)
 const game = new Game($('gl'), quality, treeModel, map, billboardModel);
 const net = new Net();

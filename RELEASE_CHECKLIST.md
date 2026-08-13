@@ -111,6 +111,18 @@ and hands-on playtesting. Those are marked **yours** below.
       nothing in the code depends on the folder name any more (the README's
       `--prefix horizon-rush` calls are gone)
 - [ ] Confirm every remaining asset is CC0/CC-BY-cleared for commercial use
+- [x] **Attribution ships in the build** (2026-08-13). Found during release prep:
+      `dist/` carried NO credits at all — grepping the bundle for
+      `ProbablyNotG|Aditya|staticcc|3D Cars Studio|creativecommons` returned
+      nothing. CREDITS.md is a repo file and never shipped, so the built artifact
+      breached CC-BY on four assets regardless of destination. Fixed with a
+      collapsible **CREDITS & LICENCES** panel in the lobby naming creator,
+      title, licence and source URI for the player car, rival cars, trees,
+      billboards and engine audio. Verified in a real browser: the panel opens
+      and renders all five entries, and `npm run check` stays 9/9.
+      URIs are plain text, not anchors — portals disallow outbound links, and
+      CC-BY asks for a URI, which plain text satisfies. Anything added to
+      CREDITS.md that ships in `dist/` must be added to that panel too
 
 ## 2 · Static build (`npm run build` -> `dist/`)
 

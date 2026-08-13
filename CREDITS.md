@@ -1,5 +1,14 @@
 # Credits & asset licences
 
+> **This file is the long form. The build carries its own copy.** CC-BY requires
+> attribution wherever the game runs, and a portal's store-page description field
+> does not travel with the ZIP — so the lobby has a **CREDITS & LICENCES** panel
+> (`#creditsBox` in `public/index.html`) naming every creator, title, licence and
+> source URI. Anything added here that ships in `dist/` must be added there too.
+>
+> URIs in that panel are plain text, not links: game portals disallow outbound
+> links, and CC-BY asks for a URI, which plain text satisfies.
+
 ## 3D models
 
 ### "Kestrel GT" (`models/kestrel_gt.glb`) — ACTIVE
