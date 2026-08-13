@@ -12,6 +12,26 @@ npm run check:iframe   # survives a real cross-origin embed? storage, input
 npm run zip            # -> noxrush-v1.0.0.zip, index.html at archive root
 ```
 
+### Playgama is a separate bundle
+
+```bash
+npm run build:playgama # -> dist-playgama/, injects their bridge + config
+npm run check:playgama # same checks; only bridge.playgama.com may be contacted
+npm run zip:playgama   # -> noxrush-v1.0.0-playgama.zip
+```
+
+The two bundles can never be the same bytes, for two independent reasons:
+CrazyGames will not pay revenue share on a game carrying another portal's
+branding, and their build must make **no** off-origin request, while Playgama's
+bridge loads from `bridge.playgama.com`. `dist/` therefore ships a generated
+no-op stub in place of `js/sdk.js`, so no other portal is named anywhere in the
+CrazyGames upload — verified with `grep -ril playgama dist/`.
+
+CrazyGames has **no mandatory exclusivity**, so both can be live at once. The
+optional 2-month exclusivity at Full Launch raises revenue share ~50%; taking it
+means pulling out of other web portals for that window. That is a decision, not
+a default.
+
 All four must pass before uploading. As of 2026-08-13 they do:
 **14.75 MB / 32 files unpacked, 9.39 MB zipped, 9/9 and 7/7 checks green.**
 
@@ -269,5 +289,29 @@ and hands-on playtesting. Those are marked **yours** below.
 
 ## Later / other portals
 
+- [x] **Playgama Bridge integrated** (2026-08-13) — one SDK, many partner
+      portals. `npm run build:playgama`. What it required, none of which is
+      obvious from their docs:
+      · **A second bundle.** Their bridge is an external script, which breaks the
+        no-off-origin invariant `npm run check` enforces and CrazyGames QA passed
+        on. `dist/` stays SDK-free; `dist-playgama/` is its own artifact
+      · **No direct `localStorage`.** They require progress through their Storage
+        API, because on some partner platforms localStorage is wiped or
+        partitioned and saves silently vanish. All 25 call sites now go through
+        `public/js/store.js`; `build-web.js` FAILS the build if a direct call
+        reappears. The cache is seeded synchronously at import so reads stay
+        sync mid-race, then overlaid by the SDK with an `onRefresh()` re-read —
+        without that, a returning player sees level 1 until they reload
+      · **`playgama-bridge-config.json` at the bundle root.** Undocumented in
+        their setup guide; found because the live bridge 404'd on it. It holds
+        the per-platform game IDs and the interstitial frequency cap, so a
+        missing file means ad settings silently do not apply
+      · **An interstitial at a natural break** is required to qualify for revenue
+        share at all. Hung on the results screen via `game.onRaceEnd`
+      Verified in a real browser both ways: bridge reachable (script + config
+      fetched, `window.bridge` live, storage round-trips) and bridge blocked
+      (adblock simulation — lobby still renders, saves still work, no exceptions)
+- [ ] Fill in per-platform game IDs in `playgama-bridge-config.json` once
+      Playgama assigns them — `platforms` is deliberately empty until then
 - [ ] Same `dist/` build works for Poki (their SDK differs), itch.io
       (no SDK needed), GameDistribution

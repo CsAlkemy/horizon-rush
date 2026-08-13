@@ -16,18 +16,23 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DIST = join(ROOT, 'dist');
+// Which bundle to package. dist/ is the CrazyGames build; a portal SDK build
+// lives in dist-<sdk>/ and zips to its own filename so the two can never be
+// confused on an upload form.
+const dirArg = process.argv.indexOf('--dir');
+const DIR = dirArg >= 0 && process.argv[dirArg + 1] ? process.argv[dirArg + 1] : 'dist';
+const DIST = join(ROOT, DIR);
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
-const OUT_NAME = `${pkg.name}-v${pkg.version}.zip`;
+const OUT_NAME = `${pkg.name}-v${pkg.version}${DIR === 'dist' ? '' : '-' + DIR.replace(/^dist-/, '')}.zip`;
 const OUT = join(ROOT, OUT_NAME);
 
 if (!existsSync(DIST)) {
-  console.error('no dist/ — run `npm run build` first');
+  console.error(`no ${DIR}/ — run the matching build first`);
   process.exit(1);
 }
 if (!existsSync(join(DIST, 'index.html'))) {
-  console.error('dist/index.html is missing — the build did not complete');
+  console.error(`${DIR}/index.html is missing — the build did not complete`);
   process.exit(1);
 }
 
@@ -36,7 +41,7 @@ if (!existsSync(join(DIST, 'index.html'))) {
 // (`zip` appends to an existing archive by default).
 if (existsSync(OUT)) rmSync(OUT);
 
-console.log(`\npackaging dist/ -> ${OUT_NAME}\n`);
+console.log(`\npackaging ${DIR}/ -> ${OUT_NAME}\n`);
 
 execFileSync('zip', ['-r', '-X', '-q', OUT, '.', '-x', '.DS_Store', '*/.DS_Store', '__MACOSX/*'],
   { cwd: DIST, stdio: 'inherit' });
@@ -61,4 +66,4 @@ if (!hasRootIndex || junk.length) {
   console.error('\narchive layout is wrong — do not upload this');
   process.exit(1);
 }
-console.log('\nready to upload to https://developer.crazygames.com/');
+console.log(`\nready to upload to ${DIR === 'dist' ? 'https://developer.crazygames.com/' : 'https://playgama.com/developers'}`);

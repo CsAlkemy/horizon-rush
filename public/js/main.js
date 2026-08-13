@@ -2,17 +2,24 @@
 import { Game } from './game.js';
 import { Net } from './net.js';
 import { LocalRace } from './offline.js';
-import { initAudio, sfx, setMusicOn, musicStatus } from './audio.js';
+import { initAudio, sfx, setMusicOn, musicStatus, setMuted } from './audio.js';
 import { toast } from './hud.js';
 import { loadCarTemplate, loadCarPack, loadSceneryModel } from './carModels.js';
 import { setCarTemplate, setCarPack } from './car.js';
 import { bindTouchUI } from './input.js';
 import { PORTAL } from './build.js';
 import { TRACKS } from '../shared/track.js';
+import * as store from './store.js';
+import { initSdk, gameReady, showInterstitial, onPlatform } from './sdk.js';
 import { getProgress, xpForLevel, paintUnlocked, paintLockLevel, pbFor, addXP } from './progress.js';
 
-// Opt-in glTF models. Absent -> procedural car / trees / billboards.
-const [carTpl, botCars, treeModel, billboardModel] = await Promise.all([
+// The portal SDK, if this build has one, comes up alongside the models: it owns
+// the player's saved progress on platforms where localStorage does not persist,
+// and the lobby below reads that progress immediately. It never rejects — a
+// portal SDK that fails to load falls back to local storage rather than costing
+// the player their game.
+const [, carTpl, botCars, treeModel, billboardModel] = await Promise.all([
+  initSdk(),
   loadCarTemplate(),
   loadCarPack(),
   loadSceneryModel('low_poly_trees.glb'),
@@ -24,7 +31,7 @@ setCarPack(botCars);
 const $ = (id) => document.getElementById(id);
 
 const PAINTS = [0xcfd2d6, 0xd7263d, 0x2364d2, 0xffb400, 0x1f9d55, 0x23262b, 0xf4f5f7, 0xff6a13, 0x7a3cf0, 0x12b8a8];
-let paint = Number(localStorage.getItem('hr_paint') || PAINTS[0]);
+let paint = Number(store.getItem('hr_paint') || PAINTS[0]);
 if (!PAINTS.includes(paint)) paint = PAINTS[0];
 // A paint above the driver's level (e.g. progress was reset) falls back to stock.
 if (!paintUnlocked(PAINTS.indexOf(paint))) paint = PAINTS[0];
@@ -32,7 +39,7 @@ if (!paintUnlocked(PAINTS.indexOf(paint))) paint = PAINTS[0];
 // bot/friends are server modes; trial (solo vs the clock + your ghost) and
 // champ (three-race series) always run on the in-browser race engine.
 const MODES = ['bot', 'friends', 'trial', 'champ'];
-let mode = localStorage.getItem('hr_mode') || 'bot';
+let mode = store.getItem('hr_mode') || 'bot';
 if (!MODES.includes(mode)) mode = 'bot';
 
 // A portal build is a static bundle in an iframe: there is no server, so FRIENDS,
@@ -51,25 +58,25 @@ const serverMode = () => (mode === 'friends' ? 'friends' : 'bot');
 // Track selection = base circuit + direction; `map` is the full id the game
 // and server use ('coastal' / 'coastal-r').
 const MAP_IDS = TRACKS.map(t => t.id);
-let map = localStorage.getItem('hr_map') || MAP_IDS[0];
+let map = store.getItem('hr_map') || MAP_IDS[0];
 if (!MAP_IDS.includes(map)) map = MAP_IDS[0];
 let baseMap = map.endsWith('-r') ? map.slice(0, -2) : map;
 let dir = map.endsWith('-r') ? 'rev' : 'fwd';
 
-const quality = localStorage.getItem('hr_quality') || 'high';
+const quality = store.getItem('hr_quality') || 'high';
 $('quality').value = quality;
 $('quality').addEventListener('change', () => {
-  localStorage.setItem('hr_quality', $('quality').value);
+  store.setItem('hr_quality', $('quality').value);
   location.reload();
 });
 
-$('musicSel').value = localStorage.getItem('hr_music') === 'off' ? 'off' : 'on';
+$('musicSel').value = store.getItem('hr_music') === 'off' ? 'off' : 'on';
 $('musicSel').addEventListener('change', () => {
   setMusicOn($('musicSel').value === 'on');
   sfx.click();
 });
 
-$('nameInput').value = localStorage.getItem('hr_name') || '';
+$('nameInput').value = store.getItem('hr_name') || '';
 
 // Asset attribution. Collapsed by default; state is not persisted, so every
 // fresh session shows the lobby with the credits available but out of the way.
@@ -124,7 +131,7 @@ function buildSwatches() {
         return;
       }
       paint = c;
-      localStorage.setItem('hr_paint', String(c));
+      store.setItem('hr_paint', String(c));
       document.querySelectorAll('.swatch').forEach(s => s.classList.remove('sel'));
       d.classList.add('sel');
       game.setIdentity(currentName(), paint);
@@ -208,7 +215,7 @@ function trackThumb(t, w = 168, h = 84) {
 const MEDAL_ICO = { gold: '🥇', silver: '🥈', bronze: '🥉' };
 function applyMap({ send = true } = {}) {
   map = baseMap + (dir === 'rev' ? '-r' : '');
-  localStorage.setItem('hr_map', map);
+  store.setItem('hr_map', map);
   for (const x of document.querySelectorAll('#mapSeg [data-map]')) {
     x.classList.toggle('sel', x.dataset.map === baseMap);
   }
@@ -273,6 +280,18 @@ applyMap({ send: false });
 // Lobby refresh after a race banks XP: level chip, unlocks, PBs.
 game.onProgress = () => { renderDriver(); buildSwatches(); renderTrackBadges(); };
 
+// Portal wiring. All three no-op on the LAN and CrazyGames builds, which ship
+// no SDK at all — see sdk.js.
+//
+// The interstitial goes on the results screen and nowhere else: it is the only
+// point where a player is already stopped, and platforms require a breakpoint
+// interstitial before a game qualifies for revenue share.
+game.onRaceEnd = () => { showInterstitial(); };
+// The platform silences and pauses us for its own reasons — an ad opening, the
+// player switching tabs. Without this the engine loop keeps roaring under the ad.
+onPlatform('audio', (on) => setMuted(!on));
+onPlatform('pause', (paused) => setMuted(paused));
+
 // ---------------------------------------------------------------- opponents
 function paintModeSeg() {
   for (const b of document.querySelectorAll('#modeSeg [data-mode]')) {
@@ -284,7 +303,7 @@ for (const b of document.querySelectorAll('#modeSeg [data-mode]')) {
   b.addEventListener('click', () => {
     if (b.dataset.mode === mode) return;
     mode = b.dataset.mode;
-    localStorage.setItem('hr_mode', mode);
+    store.setItem('hr_mode', mode);
     paintModeSeg();
     sfx.click();
     // Switching opponents un-arms you, so you always confirm the mode you race.
@@ -335,7 +354,11 @@ for (const d of document.querySelectorAll('.step-dot')) {
   d.addEventListener('click', () => { showStep(+d.dataset.step); sfx.click(); });
 }
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') showStep(2); });
-showStep(localStorage.getItem('hr_name') ? 4 : 1);
+showStep(store.getItem('hr_name') ? 4 : 1);
+
+// Tell the platform the first playable frame is up, one frame after the lobby
+// is laid out. Until this lands the platform keeps its own loader over the game.
+requestAnimationFrame(() => gameReady());
 
 // ---------------------------------------------------------------- party codes
 function renderPartyBox() {
@@ -584,7 +607,7 @@ function dailyInfo() {
 let dailyRun = null;   // set to today's key while a daily attempt is in flight
 function dailyState() {
   try {
-    const s = JSON.parse(localStorage.getItem('hr_daily'));
+    const s = JSON.parse(store.getItem('hr_daily'));
     if (s && s.key === dailyInfo().key) return s;
   } catch {}
   return { key: dailyInfo().key, lap: 0, awarded: false };
@@ -600,7 +623,7 @@ $('dailyGo').addEventListener('click', () => {
   baseMap = info.id.endsWith('-r') ? info.id.slice(0, -2) : info.id;
   dir = info.id.endsWith('-r') ? 'rev' : 'fwd';
   mode = 'trial';
-  localStorage.setItem('hr_mode', mode);
+  store.setItem('hr_mode', mode);
   paintModeSeg();
   applyMap();
   dailyRun = info.key;
@@ -674,7 +697,7 @@ net.on('results', (m) => {
       if (game.onProgress) game.onProgress();
       renderDriver();
     }
-    try { localStorage.setItem('hr_daily', JSON.stringify(st)); } catch {}
+    try { store.setItem('hr_daily', JSON.stringify(st)); } catch {}
     renderDaily();
   }
   dailyRun = null;
@@ -686,7 +709,7 @@ net.on('results', (m) => {
 function sendReady() {
   initAudio();
   const name = currentName();
-  localStorage.setItem('hr_name', name);
+  store.setItem('hr_name', name);
 
   // Solo modes that always run on the in-browser engine, server or not.
   if (mode === 'trial' || mode === 'champ') {
@@ -729,7 +752,7 @@ $('readyBtn').addEventListener('click', () => {
 // ⚡ QUICK RACE — one tap from any step straight onto the grid vs rivals.
 $('quickBtn').addEventListener('click', () => {
   mode = 'bot';
-  localStorage.setItem('hr_mode', mode);
+  store.setItem('hr_mode', mode);
   paintModeSeg();
   if (joined) net.send({ t: 'mode', mode: serverMode() });
   if (!sendReady()) return;

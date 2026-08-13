@@ -15,13 +15,25 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { readFileSync, existsSync, statSync, mkdtempSync, rmSync } from 'node:fs';
-import { join, dirname, extname, normalize } from 'node:path';
+import { join, dirname, extname, normalize, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DIST = join(ROOT, 'dist');
+// Which bundle to check. dist/ is the SDK-free CrazyGames build; a portal SDK
+// build lives in dist-<sdk>/ and is allowed exactly one off-origin host.
+const dirArg = process.argv.indexOf('--dir');
+const DIST = join(ROOT, dirArg >= 0 && process.argv[dirArg + 1] ? process.argv[dirArg + 1] : 'dist');
+// Read back what the build actually declared rather than trusting the flag.
+let BUILD_SDK = 'none';
+try {
+  BUILD_SDK = (readFileSync(join(DIST, 'js/build-config.js'), 'utf8')
+    .match(/"sdk"\s*:\s*"([^"]+)"/) || [, 'none'])[1];
+} catch {}
+// Only the declared SDK's own host may be contacted. Everything else, on every
+// build, is still a failure — that invariant is what keeps the bundle portable.
+const ALLOWED_HOSTS = BUILD_SDK === 'playgama' ? ['https://bridge.playgama.com'] : [];
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const SUBPATH = '/games/noxrush/';       // stand-in for a portal's mount point
 
@@ -110,7 +122,7 @@ try {
         const u = m.params.request.url;
         urlOf.set(m.params.requestId, `${m.params.request.method} ${u}`);
         if (u.startsWith('data:') || u.startsWith('blob:')) break;
-        if (!u.startsWith(ORIGIN)) offOrigin.push(u);
+        if (!u.startsWith(ORIGIN) && !ALLOWED_HOSTS.some((h) => u.startsWith(h))) offOrigin.push(u);
         break;
       }
       case 'Network.responseReceived':
@@ -211,7 +223,7 @@ try {
       JSON.stringify(state)],
   ];
 
-  console.log(`\nserved dist/ at ${pageUrl}  (deliberately on a subpath)\n`);
+  console.log(`\nserved ${relative(ROOT, DIST)}/ at ${pageUrl}  (deliberately on a subpath)${BUILD_SDK !== 'none' ? `  sdk=${BUILD_SDK}` : ''}\n`);
   let bad = 0;
   for (const [name, ok, detail] of checks) {
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}`);
@@ -229,11 +241,18 @@ try {
   if (missing.length) {
     console.log(`\n  server saw ${missing.length} miss(es): ${[...new Set(missing)].slice(0, 8).join(', ')}`);
   }
-  console.log(bad ? `\n${bad} check(s) failed\n` : `\nAll checks passed — dist/ is self-contained\n`);
+  console.log(bad ? `\n${bad} check(s) failed\n`
+    : `\nAll checks passed — ${relative(ROOT, DIST)}/ is self-contained`
+      + `${BUILD_SDK !== 'none' ? ` apart from the ${BUILD_SDK} bridge, which is expected` : ''}\n`);
   process.exitCode = bad ? 1 : 0;
 } finally {
   if (ws) ws.close();
   chrome.kill('SIGKILL');
   server.close();
-  rmSync(profile, { recursive: true, force: true });
+  // Chrome writes to its profile for a moment after SIGKILL, so a plain rmSync
+  // races it and throws ENOTEMPTY — which would fail a run whose checks all
+  // passed. Retry briefly, and never let cleanup decide the exit code.
+  try {
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch { /* temp dir, the OS will reap it */ }
 }

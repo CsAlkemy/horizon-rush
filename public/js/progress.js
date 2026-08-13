@@ -1,4 +1,4 @@
-// Driver progression, kept in localStorage: lifetime XP + level, per-track
+// Driver progression, kept in the player store: lifetime XP + level, per-track
 // personal bests and medals, and the paint-unlock rules. Pure data/logic — no
 // DOM, no three.js — so the game and the lobby UI both lean on it.
 
@@ -7,18 +7,24 @@
 // medals, so renaming them to `rb_` would silently wipe every existing player's
 // progression. Same reasoning for the other hr_* keys (name, paint, map, mode,
 // cam, quality, ghost, daily, music). Change them only with a migration step.
+import * as store from './store.js';
+
 const KEY = 'hr_progress';
 
 function load() {
   try {
-    const p = JSON.parse(localStorage.getItem(KEY));
+    const p = JSON.parse(store.getItem(KEY));
     if (p && typeof p === 'object') return { xp: Math.max(0, p.xp | 0), pbs: p.pbs || {} };
   } catch {}
   return { xp: 0, pbs: {} };   // pbs[trackId] = { lap: ms, race: ms, medal: 'gold'|'silver'|'bronze' }
 }
 let state = load();
+// On a portal build the authoritative save lives with the platform and arrives
+// after this module has already evaluated, so re-read when it lands. Without
+// this a returning player would see level 1 until their next reload.
+store.onRefresh(() => { state = load(); });
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {}
+  try { store.setItem(KEY, JSON.stringify(state)); } catch {}
 }
 
 // Level curve: quadratic, so the first level-up lands in a race or two and

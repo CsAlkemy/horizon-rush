@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { buildTrack, TOTAL_LAPS, wrapAngle, ROAD_Y } from '../shared/track.js';
 import { stepCar, CAR } from '../shared/physics.js';
+import * as store from './store.js';
 import { buildWorld } from './world.js';
 import { createCar, animateCar, setLights, setPaint, carTemplateConfig } from './car.js';
 import { HUD, toast, fmtTime } from './hud.js';
@@ -97,7 +98,7 @@ export class Game {
     this._lastOvertakeAt = 0;
     this._lastLostAt = 0;
 
-    this.camMode = localStorage.getItem('hr_cam') || 'chase';
+    this.camMode = store.getItem('hr_cam') || 'chase';
     if (!CAM_MODES.includes(this.camMode)) this.camMode = 'chase';
     this.lightsOn = false;
     this.hornWasDown = false;
@@ -192,6 +193,9 @@ export class Game {
           ? { xp: 0, stats: this.finishStats, bestLap: this.bestLap } : null);
       }
       if (this.onProgress) this.onProgress();   // lobby refreshes level/unlocks
+      // The one natural break in a race game. Portal builds hang their
+      // interstitial here; every other build leaves the hook unset.
+      if (this.onRaceEnd) this.onRaceEnd();
       setMusicScene('lobby');   // radio back up over the podium
       sfx.panel();
     });
@@ -484,7 +488,7 @@ export class Game {
     this.ghostTimer = 0;
     if (this.raceKind === 'trial') {
       this.ghostData = null;
-      try { this.ghostData = JSON.parse(localStorage.getItem('hr_ghost_' + this.track.id)); } catch {}
+      try { this.ghostData = JSON.parse(store.getItem('hr_ghost_' + this.track.id)); } catch {}
       if (this.ghostData && !(this.ghostData.lapMs > 5000 && Array.isArray(this.ghostData.samples))) this.ghostData = null;
       this.removeGhostVisual();
       this.ensureGhostVisual();
@@ -713,7 +717,7 @@ export class Game {
           const beat = !this.ghostData || Math.round(lapTime) < this.ghostData.lapMs;
           if (beat && this.ghostBuf.length > 10) {
             this.ghostData = { lapMs: Math.round(lapTime), samples: this.ghostBuf };
-            try { localStorage.setItem('hr_ghost_' + this.track.id, JSON.stringify(this.ghostData)); } catch {}
+            try { store.setItem('hr_ghost_' + this.track.id, JSON.stringify(this.ghostData)); } catch {}
             this.ensureGhostVisual();
           }
           this.hud.banner(`${beat ? '👻 NEW GHOST — ' : ''}LAP ${fmtTime(lapTime)}`, 1800);
@@ -1187,7 +1191,7 @@ export class Game {
 
   setCamMode(mode, quiet = false) {
     this.camMode = mode;
-    localStorage.setItem('hr_cam', mode);
+    store.setItem('hr_cam', mode);
     // The procedural car's tinted cabin, and a model's roof/cage, would block
     // an interior view — drop them for cockpit only.
     if (this.myVisual) {

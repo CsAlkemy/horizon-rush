@@ -9,7 +9,10 @@
     "build": "node scripts/build-web.js",
     "check": "node scripts/check-dist.mjs",
     "check:iframe": "node scripts/check-iframe.mjs",
-    "zip": "node scripts/make-zip.mjs"
+    "zip": "node scripts/make-zip.mjs",
+    "build:playgama": "node scripts/build-web.js --playgama",
+    "check:playgama": "node scripts/check-dist.mjs --dir dist-playgama",
+    "zip:playgama": "node scripts/make-zip.mjs --dir dist-playgama"
   },
   "engines": {
     "node": ">=18"

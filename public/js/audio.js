@@ -2,6 +2,7 @@
 // from public/audio (see public/audio/README.md for the file mapping), and a
 // background-music channel (synthesized lofi, or a user-supplied music.mp3).
 import { HAS_FOLEY } from './build.js';
+import * as store from './store.js';
 
 let ctx = null, master = null, muted = false;
 let engine = null, wind = null, skid = null;
@@ -167,7 +168,10 @@ export function initAudio() {
 const MUSIC_VOL = { lobby: 0.30, race: 0.16 };
 let music = null;
 let musicOn = true;
-try { musicOn = localStorage.getItem('hr_music') !== 'off'; } catch {}
+try { musicOn = store.getItem('hr_music') !== 'off'; } catch {}
+// Same reason as progress.js: a portal build's saved preference arrives after
+// this module evaluates.
+store.onRefresh(() => { try { musicOn = store.getItem('hr_music') !== 'off'; } catch {} });
 let musicScene = 'lobby';
 const musicTarget = () => (musicOn ? MUSIC_VOL[musicScene] : 0);
 
@@ -178,7 +182,7 @@ export function setMusicScene(scene) {
 
 export function setMusicOn(on) {
   musicOn = !!on;
-  try { localStorage.setItem('hr_music', musicOn ? 'on' : 'off'); } catch {}
+  try { store.setItem('hr_music', musicOn ? 'on' : 'off'); } catch {}
   if (music && ctx) music.gain.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.4);
   else if (musicOn) startMusic();
 }
@@ -340,7 +344,14 @@ export function engineStatus() {
 }
 
 export function toggleMute() {
-  muted = !muted;
+  return setMuted(!muted);
+}
+
+// Explicit mute, for callers that know which way they want it — the portal SDK
+// silences the game while an interstitial plays or the tab is backgrounded, and
+// a toggle would invert the state instead of restoring it.
+export function setMuted(on) {
+  muted = !!on;
   if (master) master.gain.value = muted ? 0 : 0.55;
   return muted;
 }
