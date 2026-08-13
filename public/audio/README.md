@@ -36,42 +36,73 @@ fell back to the oscillator bed.
 
 ## One-shot foley
 
-| File in this folder | Original | Used for |
+The mapping is the `SAMPLES` table at the top of `public/js/audio.js`, and each
+is fired from a named entry in the `sfx` object at the bottom of the same file.
+
+| File | Used for | Currently |
 | --- | --- | --- |
-| `ignition.wav` | `AV_STARTUP_ClassicSupercar_01` | Engine crank when you press **READY — START ENGINE** (and RACE AGAIN) |
-| `impact.wav` | `AV_TRUNKDOWN_ModernSportsCar_01` | Body hits — guardrail and car-to-car. Louder and pitched down with impact speed |
-| `scrape.wav` | `AV_TRUNKUP_ModernSportsCar_01` | Metal-on-metal while sliding along the barrier (rate-limited to 2/sec) |
-| `click.wav` | `AV_TRUNKOPEN_ModernSportsCar_01` | Paint-swatch / UI click |
-| `grid-up.wav` | `AV_WINDOWSUP_ModernSportsCar_01` | Lobby closes and the grid forms |
-| `panel.wav` | `AV_WINDOWSDOWN_ModernSportsCar_01` | Results panel appears |
-| `reset.wav` | `AV_TOPRETURN_ModernSportsCar_01` | Pressing **R** to reset onto the track |
+| `ignition.wav` | Engine crank on **READY — START ENGINE** (and RACE AGAIN) | `AV_STARTUP_ClassicSupercar_01` — **unlicensed, replace** |
+| `impact.wav` | Body hits — guardrail and car-to-car. Louder and pitched down with impact speed | `AV_TRUNKDOWN_ModernSportsCar_01` — **unlicensed, replace** |
+| `scrape.wav` | Metal-on-metal while sliding along the barrier (rate-limited to 2/sec) | `AV_TRUNKUP_ModernSportsCar_01` — **unlicensed, replace** |
+| `click.wav` | Paint-swatch / UI click | `AV_TRUNKOPEN_ModernSportsCar_01` — **unlicensed, replace** |
+| `grid-up.wav` | Lobby closes and the grid forms | `AV_WINDOWSUP_ModernSportsCar_01` — **unlicensed, replace** |
+| `panel.wav` | Results panel appears | `AV_WINDOWSDOWN_ModernSportsCar_01` — **unlicensed, replace** |
+| `reset.wav` | Pressing **R** to reset onto the track | `AV_TOPRETURN_ModernSportsCar_01` — **unlicensed, replace** |
 
-## Why these placements
+## Replacing them
 
-`impact.wav` is the one obvious win: it's 0.2 s with its peak 40 ms in and a
-much lower zero-crossing rate than the others (9.3k vs ~46k), i.e. a short dull
-percussive thud — exactly what a car body hitting a barrier sounds like. It
-replaced a synthesised noise burst.
+`node scripts/install-foley.mjs --list` prints a verified Pixabay pick for each
+cue with its URL. Pixabay sits behind Cloudflare so the downloads cannot be
+scripted — grab the seven mp3s in a browser, then:
 
-`ignition.wav` is a 1 s crank-and-catch, so it goes where an engine starts.
+    node scripts/install-foley.mjs ~/Downloads --purge
 
-The rest are trunk, window and convertible-roof mechanisms — sustained bright
-motor whirrs of 1.5–5.2 s. A race never opens a trunk or rolls a window, so
-these have no literal home in the game. They're placed as UI and mechanism
-sounds where a motor whirr reads plausibly. Moving them is easy: the mapping is
-the `SAMPLES` table at the top of `public/js/audio.js`, and each is fired from a
-named entry in the `sfx` object at the bottom of the same file.
+That converts each to mono 44.1 kHz 16-bit PCM, trims the leading silence, caps
+it to the length the cue wants, fades the tail 15 ms and peak-normalizes to
+-1.5 dBFS. `--purge` deletes any cue you did not replace, so the folder can
+never be left holding an unlicensed file. Partial sets are fine.
 
-Longer files are played from an offset so you hear the meaty part rather than
-the quiet run-in — see the `offset`/`duration` options on `playSample`.
+Because the installer ships everything pre-trimmed, the `sfx` entries no longer
+pass `offset`/`duration` to `playSample` — those existed only to skip the quiet
+run-in on the long library recordings, and on a short file an offset past the end
+plays near-silence.
+
+## Every one-shot has a synth fallback
+
+`playSample` returns `false` when a sample is missing or undecoded, and every
+foley entry checks it:
+
+| Cue | Fallback |
+| --- | --- |
+| `impact` | `crashNoise()` — filtered noise burst, scaled by strength |
+| `ignition` | `crankNoise()` — starter whirr, 3 compression chugs, then the catch |
+| `scrape` | `scrapeNoise()` — narrow bandpass on the noise bed, swept up |
+| `gridUp` / `panel` / `reset` | `motorWhirr()` — sawtooth armature + noise band, swept up for `gridUp`/`reset` and down for `panel` |
+| `click` | a short square `blip()` |
+
+So **every one of these files can be deleted without any cue going silent** —
+the game degrades to fully synthesized audio. Only `engine-low/high.wav` change
+character noticeably (they fall back to the oscillator bed; `engineStatus()`
+reports which is live).
 
 ## Licensing
 
-The engine came from a Pixabay-style download (`author-title-id.mp3`); the
-Pixabay Content License permits use without attribution but not redistributing
-the raw file as a standalone asset. The foley files use an `AV_` library naming
-convention, so they likely came from a commercial SFX pack.
+**The engine loops are cleared.** Source is "Roaring sports car" by **spinopel**
+(https://pixabay.com/sound-effects/roaring-sports-car-381841/, 7 s) under the
+Pixabay Content License — commercial use permitted, no attribution required.
+Ship the derived loops, not the source mp3, since the licence does not cover
+redistributing the original file as a standalone asset.
 
-Keep both licences with the project and check the terms before committing this
-folder to a public repo — many commercial libraries allow use inside a project
-but not redistribution of the source recordings. Your own LAN is fine either way.
+**The 7 foley one-shots are not cleared, and should be treated as unlicensed.**
+Checked 2026-08-12: the only metadata in each file is a RIFF `INFO/INAM` plus an
+id3 `TIT2` title of the form `AV_STARTUP_ClassicSupercar_01.assets`. The
+`.assets` suffix is Unity's serialized-asset container — that filename is what
+AssetStudio/AssetRipper writes when extracting audio from a Unity build, so
+these were ripped from a game, not downloaded from a library. There is no
+artist, copyright, vendor or library field in any of the seven, and the `AV_*`
+names match no public SFX library (searched Soundsnap, A Sound Effect, Sonniss's
+royalty-free GDC bundles, Pixabay, Unity Asset Store).
+
+There is therefore no clearance to document and no rights-holder to ask. Do not
+ship them to a portal — run the installer above, or delete them and let the
+synth fallbacks cover it.

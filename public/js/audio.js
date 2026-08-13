@@ -394,6 +394,78 @@ function crashNoise(strength = 1) {
   s.connect(f); f.connect(g); g.connect(master); s.start();
 }
 
+// Synthesized motor whirr — stand-in for the recorded window/trunk/roof
+// mechanisms. A sawtooth "armature" tone sweeping between two pitches with a
+// band of noise riding along on the same sweep, so it reads as a small electric
+// motor spinning up rather than as a musical note.
+function motorWhirr({ dur = 0.5, from = 180, to = 220, vol = 0.16, cutoff = 1400 } = {}) {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const g = ctx.createGain();
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = cutoff; lp.Q.value = 0.8;
+  g.connect(lp); lp.connect(master);
+
+  // Spin-up and spin-down are short but not instant — a motor has inertia.
+  const hold = Math.max(0.05, dur - 0.06);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.04, hold));
+  g.gain.setValueAtTime(vol, t + hold);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(from, t);
+  o.frequency.linearRampToValueAtTime(to, t + dur);
+  const og = ctx.createGain(); og.gain.value = 0.5;
+  o.connect(og); og.connect(g);
+  o.start(t); o.stop(t + dur + 0.02);
+
+  // Noise band tracks the pitch six octaves-ish up and supplies the gear
+  // rattle a bare oscillator has no room for.
+  if (noiseBuf) {
+    const n = ctx.createBufferSource();
+    n.buffer = noiseBuf; n.loop = true; n.playbackRate.value = 1.2;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.Q.value = 1.1;
+    bp.frequency.setValueAtTime(from * 6, t);
+    bp.frequency.linearRampToValueAtTime(to * 6, t + dur);
+    const ng = ctx.createGain(); ng.gain.value = 0.35;
+    n.connect(bp); bp.connect(ng); ng.connect(g);
+    n.start(t); n.stop(t + dur + 0.02);
+  }
+}
+
+// Synthesized engine crank — fallback for the ignition sample. Starter motor
+// whirr, three compression chugs while it turns over, then it catches; the
+// recorded/synth engine bed takes over from there.
+function crankNoise() {
+  if (!ctx) return;
+  motorWhirr({ dur: 0.72, from: 240, to: 300, vol: 0.12, cutoff: 2400 });
+  for (let i = 0; i < 3; i++) blip(68 + i * 7, 0.11, 'sawtooth', 0.26, 0.14 + i * 0.18);
+  blip(96, 0.3, 'sawtooth', 0.3, 0.7);   // the catch
+}
+
+// Synthesized metal-on-metal scrape — fallback for the scrape sample. A narrow
+// bandpass on the shared noise bed rings like sheet metal; sweeping it up gives
+// the sense of sliding along a barrier.
+function scrapeNoise() {
+  if (!ctx || !noiseBuf) return;
+  const t = ctx.currentTime, dur = 0.5;
+  const n = ctx.createBufferSource();
+  n.buffer = noiseBuf; n.loop = true; n.playbackRate.value = 1.8;
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.Q.value = 3.2;
+  bp.frequency.setValueAtTime(2600, t);
+  bp.frequency.linearRampToValueAtTime(3400, t + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.12, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  n.connect(bp); bp.connect(g); g.connect(master);
+  n.start(t); n.stop(t + dur + 0.02);
+}
+
 let lastScrapeAt = 0;
 
 // Two-tone horn: a real car horn is two detuned reeds a minor third apart, with
@@ -464,8 +536,12 @@ export const sfx = {
   finish: () => { blip(659, 0.12, 'triangle', 0.3); blip(784, 0.12, 'triangle', 0.3, 0.1); blip(988, 0.12, 'triangle', 0.3, 0.2); blip(1319, 0.3, 'triangle', 0.35, 0.3); },
 
   // --- recorded car foley ---------------------------------------------------
+  // Every entry here prefers its recording but falls back to a synth
+  // stand-in, so the whole `public/audio/*.wav` foley set can be deleted (for
+  // licensing or download size) without any cue going silent.
+
   // Engine crank when the player fires up on the READY button.
-  ignition: () => playSample('ignition', { gain: 0.95 }),
+  ignition: () => { if (!playSample('ignition', { gain: 0.95 })) crankNoise(); },
 
   // Body thud on contact. Harder hits are louder and pitched down.
   impact: (strength = 0.5) => {
@@ -483,7 +559,10 @@ export const sfx = {
     if (!ctx) return;
     if (ctx.currentTime - lastScrapeAt < 0.5) return;
     lastScrapeAt = ctx.currentTime;
-    playSample('scrape', { gain: 0.3, rate: 1.35 + Math.random() * 0.25, offset: 0.55, duration: 0.75 });
+    // Rate jitter only — scripts/install-foley.mjs ships this pre-trimmed, so
+    // there is no quiet run-in to skip past with an offset.
+    const ok = playSample('scrape', { gain: 0.3, rate: 1.0 + Math.random() * 0.3 });
+    if (!ok) scrapeNoise();
   },
 
   // A remote player's horn — a short toot, since we only get the event.
@@ -495,9 +574,28 @@ export const sfx = {
     h.gain.gain.setTargetAtTime(0, t + 0.45, 0.04);
   },
 
-  click: () => playSample('click', { gain: 0.4, rate: 1.2 }),
-  gridUp: () => playSample('gridUp', { gain: 0.5, rate: 1.1 }),
-  panel: () => playSample('panel', { gain: 0.45, offset: 0.15 }),
-  // Mechanism whirr for a track reset — the meaty middle of a long recording.
-  reset: () => playSample('reset', { gain: 0.6, rate: 1.5, offset: 2.3, duration: 1.3 }),
+  click: () => {
+    if (!playSample('click', { gain: 0.4, rate: 1.2 })) blip(1200, 0.035, 'square', 0.16);
+  },
+
+  // Lobby closes and the grid forms — a mechanism closing, so the whirr rises.
+  gridUp: () => {
+    if (!playSample('gridUp', { gain: 0.5, rate: 1.1 })) {
+      motorWhirr({ dur: 0.6, from: 150, to: 260, vol: 0.15 });
+    }
+  },
+
+  // Results panel appears — same mechanism running the other way, so the
+  // whirr falls; it reads as settling rather than starting.
+  panel: () => {
+    if (!playSample('panel', { gain: 0.45 })) {
+      motorWhirr({ dur: 0.5, from: 240, to: 160, vol: 0.13 });
+    }
+  },
+
+  // Pressing R to drop back onto the track.
+  reset: () => {
+    const ok = playSample('reset', { gain: 0.6, rate: 1.1 });
+    if (!ok) motorWhirr({ dur: 0.7, from: 200, to: 285, vol: 0.15, cutoff: 1800 });
+  },
 };
