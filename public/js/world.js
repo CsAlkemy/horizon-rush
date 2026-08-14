@@ -146,6 +146,89 @@ function bannerTexture() {
   });
 }
 
+// Radial stripes for a tent canopy. A cone's UVs wrap once around its
+// circumference, so vertical stripes in the texture become radial panels.
+function tentStripeTexture(hexA, hexB) {
+  const a = '#' + hexA.toString(16).padStart(6, '0');
+  const b = '#' + hexB.toString(16).padStart(6, '0');
+  return canvasTexture(256, 64, (g, w, h) => {
+    const panels = 8;
+    for (let i = 0; i < panels; i++) {
+      g.fillStyle = i % 2 ? a : b;
+      g.fillRect((i / panels) * w, 0, w / panels + 1, h);
+    }
+    // A touch of shading down the fabric so the canopy is not a flat colour.
+    const sh = g.createLinearGradient(0, 0, 0, h);
+    sh.addColorStop(0, 'rgba(255,255,255,0.18)');
+    sh.addColorStop(1, 'rgba(0,0,0,0.22)');
+    g.fillStyle = sh;
+    g.fillRect(0, 0, w, h);
+  });
+}
+
+// Bunting: alternating pennants hanging off a cord, on a transparent strip.
+function buntingTexture() {
+  const cols = ['#ff2d78', '#ffb400', '#35e0e6', '#f4f5f7', '#7a3cf0', '#12b8a8'];
+  return canvasTexture(512, 128, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.strokeStyle = '#2b2f38'; g.lineWidth = 5;
+    g.beginPath(); g.moveTo(0, 10); g.lineTo(w, 10); g.stroke();
+    const n = 12, step = w / n;
+    for (let i = 0; i < n; i++) {
+      g.fillStyle = cols[i % cols.length];
+      const x = i * step;
+      g.beginPath();
+      g.moveTo(x + 3, 10); g.lineTo(x + step - 3, 10); g.lineTo(x + step / 2, h - 14);
+      g.closePath(); g.fill();
+    }
+  }, [1, 1]);
+}
+
+// A packed crowd, as coloured dots in rows. Cheap enough to put on a plane and
+// far more convincing than an empty grandstand.
+function crowdTexture() {
+  const skin = ['#e8b48c', '#c98a5e', '#8c5a3c', '#f0cfae', '#6b4530'];
+  // Mostly muted, a few bright. A full rainbow palette reads as confetti; real
+  // crowds are largely neutral with the odd flash of colour.
+  const shirt = ['#5c6470', '#7b838f', '#3d4450', '#9aa2ae', '#4a5666', '#6b7280',
+    '#8b8177', '#5a6472', '#2f3640', '#a8b0bb',
+    '#d7263d', '#2364d2', '#ffd23d', '#f4f5f7', '#1f9d55'];
+  return canvasTexture(512, 256, (g, w, h) => {
+    // Seat colour, not black. A near-black ground with sparse dots on it reads
+    // as a dark slab with confetti rather than as a stand full of people.
+    g.fillStyle = '#525b6b';
+    g.fillRect(0, 0, w, h);
+    for (let r = 0; r < 9; r++) {
+      g.fillStyle = 'rgba(0,0,0,0.16)';
+      g.fillRect(0, h - ((r + 1) / 9) * h, w, 3);
+    }
+    // Sized so that, at the repeat set where this is used, one "person" comes
+    // out around half a metre wide. Untiled on a 30 m stand each spectator was
+    // three and a half metres tall and the whole thing read as confetti.
+    const rows = 9, cols = 30;
+    for (let r = 0; r < rows; r++) {
+      // Seats fill from the front; the back rows thin out, as they do in life.
+      const fill = 0.94 - r * 0.045;
+      for (let c = 0; c < cols; c++) {
+        if (Math.random() > fill) continue;
+        const x = ((c + (r % 2) * 0.5) / cols) * w + w / cols * 0.5;
+        const y = h - ((r + 0.62) / rows) * h;
+        const rad = w / cols * 0.34;
+        g.fillStyle = shirt[(Math.random() * shirt.length) | 0];
+        g.beginPath(); g.arc(x, y + rad * 0.9, rad * 1.05, 0, Math.PI * 2); g.fill();
+        g.fillStyle = skin[(Math.random() * skin.length) | 0];
+        g.beginPath(); g.arc(x, y - rad * 0.5, rad * 0.68, 0, Math.PI * 2); g.fill();
+      }
+    }
+    // Knock the crowd back a little so it reads as a mass under the roof
+    // rather than saturated dots competing with the cars.
+    g.fillStyle = 'rgba(22,26,34,0.16)';
+    g.fillRect(0, 0, w, h);
+    // 1.5 repeats, not 2: the seating plane is ~28.5 m x 9.2 m and this canvas
+    // is 2:1, so 2 repeats squash each spectator into a vertical dash.
+  }, [1.5, 1]);
+}
+
 function cloudTexture() {
   return canvasTexture(256, 256, (g, w, h) => {
     const blob = (x, y, r) => {
@@ -865,21 +948,143 @@ export function buildWorld(scene, renderer, track, quality, treeModel = null, bi
   });
   root.add(rocks);
 
-  // --- festival tents near start ----------------------------------------------------------
-  const tentCols = [0xff2d78, 0x1477e8, 0xffb400, 0x12b8a8, 0x7a3cf0, 0xff6a13];
+  // --- festival paddock: tents, bunting, grandstands ---------------------------------------
+  // These used to be six solid-colour six-sided cones floating at head height,
+  // which read as untextured placeholder geometry — the loudest "programmer
+  // art" tell in the scene, and directly at odds with the near-photoreal player
+  // car parked in front of them. A tent is now a striped canopy on a proper
+  // frame: valance, walls, centre pole and a pennant, with bunting strung
+  // between neighbours. Still cheap (a canopy is a 10-segment cone) but it
+  // reads as a built object rather than a primitive.
+  const tentPairs = [
+    [0xff2d78, 0xf4f5f7], [0x1477e8, 0xf4f5f7], [0xffb400, 0x23262b],
+    [0x12b8a8, 0xf4f5f7], [0x7a3cf0, 0xf4f5f7], [0xff6a13, 0x23262b],
+  ];
+  const tentMats = tentPairs.map(([a, b]) => new THREE.MeshStandardMaterial({
+    map: tentStripeTexture(a, b), roughness: 0.85, side: THREE.DoubleSide,
+  }));
+  const tentFrameMat = new THREE.MeshStandardMaterial({ color: 0xd7dbe0, roughness: 0.5, metalness: 0.3 });
+  const tentWallMat = new THREE.MeshStandardMaterial({ color: 0xeceff3, roughness: 0.9, side: THREE.DoubleSide });
+  const canopyGeo = new THREE.ConeGeometry(3.4, 1.9, 10, 1, true);
+  const valanceGeo = new THREE.CylinderGeometry(3.4, 3.4, 0.45, 10, 1, true);
+  const wallGeo = new THREE.CylinderGeometry(2.5, 2.5, 2.3, 10, 1, true);
+  const tentPoleGeo = new THREE.CylinderGeometry(0.09, 0.09, 4.4, 6);
+  const pennantGeo = new THREE.PlaneGeometry(1.1, 0.5);
+
+  const tentAt = [];
   for (let i = 0; i < 6; i++) {
-    const p = track.point(track.L - 40 - i * 14);
+    const p = track.point(track.L - 44 - i * 16);
     const side = p.nx >= 0 ? 1 : -1;
-    const off = railOff + 7 + (i % 2) * 5;
+    const off = railOff + 9 + (i % 2) * 6;
     const tx = p.x + p.nx * side * off;
     const tz = p.z + p.nz * side * off;
-    const tent = new THREE.Mesh(
-      new THREE.ConeGeometry(2.6, 2.4, 6),
-      new THREE.MeshStandardMaterial({ color: tentCols[i % tentCols.length], roughness: 0.8 })
-    );
-    tent.position.set(tx, heightAt(tx, tz) + 1.2, tz);
-    tent.castShadow = true;
-    root.add(tent);
+    const gy = heightAt(tx, tz);
+    const g = new THREE.Group();
+    g.position.set(tx, gy, tz);
+    g.rotation.y = Math.random() * Math.PI;
+
+    const walls = new THREE.Mesh(wallGeo, tentWallMat);
+    walls.position.y = 1.15;
+    const valance = new THREE.Mesh(valanceGeo, tentMats[i % tentMats.length]);
+    valance.position.y = 2.5;
+    const canopy = new THREE.Mesh(canopyGeo, tentMats[i % tentMats.length]);
+    canopy.position.y = 3.6;
+    const pole = new THREE.Mesh(tentPoleGeo, tentFrameMat);
+    pole.position.y = 2.2;
+    const pennant = new THREE.Mesh(pennantGeo, tentMats[(i + 1) % tentMats.length]);
+    pennant.position.set(0.55, 4.45, 0);
+    for (const m of [walls, valance, canopy, pole, pennant]) { m.castShadow = true; g.add(m); }
+    root.add(g);
+    tentAt.push([tx, gy, tz]);
+  }
+
+  // Bunting strung tent-to-tent. One double-sided strip per span, sagging in
+  // the middle — the sag is what stops it reading as a floating rectangle.
+  if (tentAt.length > 1) {
+    const buntMat = new THREE.MeshBasicMaterial({
+      map: buntingTexture(), transparent: true, side: THREE.DoubleSide,
+      depthWrite: false, alphaTest: 0.35, fog: true,
+    });
+    for (let i = 0; i < tentAt.length - 1; i++) {
+      const [ax, ay, az] = tentAt[i], [bx, by, bz] = tentAt[i + 1];
+      const span = Math.hypot(bx - ax, bz - az);
+      if (span > 34) continue;   // neighbours on opposite sides of the paddock
+      const SEG = 8;
+      const pos = [], uv = [], idx = [];
+      const topY = 3.9, sag = 0.9, drop = 1.0;
+      for (let k = 0; k <= SEG; k++) {
+        const t = k / SEG;
+        const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+        const yBase = (ay + (by - ay) * t) + topY - Math.sin(t * Math.PI) * sag;
+        pos.push(x, yBase, z, x, yBase - drop, z);
+        uv.push(t * (span / 8), 1, t * (span / 8), 0);
+      }
+      for (let k = 0; k < SEG; k++) {
+        const o = k * 2;
+        idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2);
+      }
+      const bg = new THREE.BufferGeometry();
+      bg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      bg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      bg.setIndex(idx);
+      bg.computeVertexNormals();
+      const strip = new THREE.Mesh(bg, buntMat);
+      strip.material.map.wrapS = THREE.RepeatWrapping;
+      root.add(strip);
+    }
+  }
+
+  // --- grandstands at start/finish ---------------------------------------------------------
+  // The horizon around the line was empty, which is what made a 12-car race
+  // look like a private test day. A raked stand of spectators on each side
+  // gives the start something to be the start OF.
+  {
+    const crowdMat = new THREE.MeshStandardMaterial({ map: crowdTexture(), roughness: 0.95 });
+    const standMat = new THREE.MeshStandardMaterial({ color: 0x3a4049, roughness: 0.8 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.55, metalness: 0.35, side: THREE.DoubleSide });
+    // Set back well behind the rail: at trackside they flanked the start like a
+    // canyon and filled the countdown camera instead of framing it.
+    const W = 30, D = 8, H = 5.6;
+    for (const side of [-1, 1]) {
+      const p = track.point(track.L - 12);
+      const off = railOff + 22;
+      const cx = p.x + p.nx * side * off;
+      const cz = p.z + p.nz * side * off;
+      const gy = heightAt(cx, cz);
+      const g = new THREE.Group();
+      g.position.set(cx, gy, cz);
+      // Face the track: +Z of the group points at the road.
+      g.rotation.y = Math.atan2(-p.nx * side, -p.nz * side);
+
+      const base = new THREE.Mesh(new THREE.BoxGeometry(W, 1.1, D), standMat);
+      base.position.set(0, 0.55, -D / 2);
+      base.castShadow = base.receiveShadow = true;
+      g.add(base);
+
+      // Raked seating: one crowd plane leaning back over stepped risers.
+      const rake = new THREE.Mesh(new THREE.PlaneGeometry(W - 1.5, Math.hypot(D, H - 1.1)), crowdMat);
+      rake.position.set(0, (H + 1.1) / 2, -D / 2);
+      rake.rotation.x = -Math.atan2(D, H - 1.1);
+      g.add(rake);
+
+      for (const [i, sideX] of [[0, -1], [1, 1]]) {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(0.5, H, D), standMat);
+        wall.position.set(sideX * (W / 2 - 0.25), H / 2, -D / 2);
+        wall.castShadow = true;
+        g.add(wall);
+      }
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(W, 0.3, D * 0.85), roofMat);
+      roof.position.set(0, H + 0.9, -D * 0.62);
+      roof.castShadow = true;
+      g.add(roof);
+      for (const sx of [-1, -0.33, 0.33, 1]) {
+        const col = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, H + 0.9, 6), roofMat);
+        col.position.set(sx * (W / 2 - 1.2), (H + 0.9) / 2, -D * 0.98);
+        col.castShadow = true;
+        g.add(col);
+      }
+      root.add(g);
+    }
   }
 
   // --- checkpoint gates ---------------------------------------------------------------------

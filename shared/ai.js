@@ -22,8 +22,11 @@ export function makeAI(count) {
     id: 'a' + (i + 1),
     name: a.name,
     color: a.color,
-    // Slower AI placed at the back of the AI pack, right in front of the humans.
-    skill: 0.95 - i * 0.055,
+    // Fastest rivals at the front of the grid. The spread is deliberately
+    // narrow (was 0.055/step, a 16% pace range): a wide spread strings the
+    // field into a line within a lap, and a player mid-pack ends up alone
+    // between two groups. 0.028 keeps them a pack you can actually race.
+    skill: 0.95 - i * 0.028,
     car: { x: 0, z: 0, h: 0, vx: 0, vz: 0, s: 0 },
     lap: 0, // grid sits behind the line; first crossing starts lap 1
     prevS: 0,
@@ -41,7 +44,11 @@ export function makeAI(count) {
 // player back off a touch and stragglers pick up a touch, so finishes stay
 // contested without ever making the field unbeatable (±6% of top speed, and
 // corner speeds are untouched).
-export function aiThink(a, allCars, track, humanProgress = null) {
+// dt: the tick length the caller is about to integrate. The eased states below
+// are time-based, so a caller running on variable dt (the browser engine now
+// does, to stay locked to the render loop) must pass it or the avoidance ease
+// changes character with frame rate.
+export function aiThink(a, allCars, track, humanProgress = null, dt = 1 / 30) {
   const car = a.car;
   const sp = Math.hypot(car.vx, car.vz);
   const look = 9 + sp * 0.55;
@@ -64,7 +71,12 @@ export function aiThink(a, allCars, track, humanProgress = null) {
   let vTop = 39 + a.skill * 13;
   if (humanProgress != null) {
     const gap = (a.lap * track.L + car.s) - humanProgress;   // >0 = ahead of the human
-    vTop *= 1 - Math.max(-1, Math.min(1, gap / 400)) * 0.06;
+    // Rivals ahead ease off, rivals behind press on. Saturating at 220 m (was
+    // 400) with a ±14% band (was ±6%) is what keeps somebody in the player's
+    // mirrors or windscreen for most of a lap instead of the field vanishing.
+    // Corner speeds are untouched and the player's car tops out ~55% above the
+    // quickest rival, so this contests the race without making it unwinnable.
+    vTop *= 1 - Math.max(-1, Math.min(1, gap / 220)) * 0.14;
   }
   const target = Math.min(vTop, vCorner);
 
@@ -89,8 +101,8 @@ export function aiThink(a, allCars, track, humanProgress = null) {
       avoidWant = side > 0 ? 0.25 : -0.25;
     }
   }
-  a.avoid += (avoidWant - a.avoid) * 0.22;   // ~130 ms ease at 30 Hz
-  a.slow += (slowWant - a.slow) * 0.3;
+  a.avoid += (avoidWant - a.avoid) * (1 - Math.exp(-7.4 * dt));   // ~130 ms ease
+  a.slow += (slowWant - a.slow) * (1 - Math.exp(-10.7 * dt));
   a.input.steer = steer + a.avoid;
   a.input.throttle = throttle * a.slow;
   a.input.brake = brake;

@@ -234,8 +234,14 @@ function rosterOf(race) {
 }
 
 function placeGrid(race) {
-  // AI up front, humans at the back of the grid (a proper comeback drive).
-  const ids = [...race.ai.map(a => a.id), ...race.members];
+  // Humans slotted into the MIDDLE of the field, not behind all of it. Starting
+  // dead last meant the AI launched out of sight and the whole race was run on
+  // an empty road; from mid-pack there are rivals both ahead and behind from
+  // the first frame. Mirrors PLAYER_GRID in public/js/offline.js — the two
+  // engines must grid identically or a LAN race and a solo race feel different.
+  const ids = [...race.ai.map(a => a.id)];
+  const at = Math.min(5, ids.length);
+  ids.splice(at, 0, ...race.members);
   const slots = [];
   ids.forEach((id, i) => {
     const g = race.track.gridSlot(i);

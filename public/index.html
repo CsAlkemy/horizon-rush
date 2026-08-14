@@ -20,17 +20,20 @@
 
 <!-- ============================== RACE HUD ============================== -->
 <div id="hud" class="hidden">
-  <div class="hud-topleft">
-    <div class="progress-wrap">
-      <div class="progress-label"><span id="progressPct">0%</span> <span class="dim">Progress</span></div>
-      <div class="progress-bar"><div id="progressFill"></div></div>
-    </div>
-    <div class="time-row"><span class="dim">Time</span> <span id="raceTime" class="mono">00:00.000</span></div>
+  <!-- Four corner zones + two centre zones. Each zone is scaled as a unit by
+       --hud-s (see style.css) so nothing can overlap at any aspect ratio; the
+       readouts inside a zone are laid out with flex/gap, never absolute offsets. -->
+  <div class="hud-zone hud-topleft">
     <div class="time-row"><span class="dim">Lap</span> <span id="lapNum" class="mono">1/3</span></div>
+    <div class="time-row"><span class="dim">Time</span> <span id="raceTime" class="mono">00:00.000</span></div>
+    <div id="skillFeed"></div>
   </div>
 
-  <div class="hud-topright">
-    <span class="dim">Position</span> <span id="posNum">12</span><span class="pos-total" id="posTotal">/12</span>
+  <div class="hud-zone hud-topright">
+    <button type="button" id="menuBtn" class="menu-btn" title="Menu">☰</button>
+    <div class="pos-block">
+      <span class="dim">Position</span> <span id="posNum">6</span><span class="pos-total" id="posTotal">/12</span>
+    </div>
   </div>
 
   <div id="checkpoint" class="checkpoint">
@@ -42,29 +45,49 @@
   <div id="chain" class="chain hidden">
     <span id="chainPts">0</span><span id="chainMult" class="chain-mult">×1.0</span>
   </div>
-  <div id="skillFeed"></div>
 
-  <div class="hud-bottomleft">
+  <div class="hud-zone hud-bottomleft">
     <canvas id="minimap" width="360" height="360"></canvas>
     <div class="player-chip"><span class="chip-ico">🏳</span> <span id="chipName">YOU</span> <span class="chip-link" id="chipLink">LAN ●</span></div>
   </div>
 
-  <div class="hud-speedo">
-    <svg id="gauge" viewBox="0 0 200 200" width="230" height="230"></svg>
-    <div class="speedo-readout">
-      <div class="gear" id="gearNum">1</div>
-      <div class="speed-num" id="speedNum">0</div>
-      <div class="speed-unit">MPH</div>
+  <!-- Nitro and speedo share one zone and stack with flex, so the meter can
+       never land on top of the position readout the way a fixed `bottom:244px`
+       did on a short viewport. -->
+  <div class="hud-zone hud-bottomright">
+    <div id="nitroWrap" class="nitro-wrap empty">
+      <span class="nitro-label">NITRO</span>
+      <div class="nitro-bar"><div id="nitroFill"></div></div>
     </div>
-  </div>
-
-  <div id="nitroWrap" class="nitro-wrap empty">
-    <span class="nitro-label">NITRO</span>
-    <div class="nitro-bar"><div id="nitroFill"></div></div>
+    <div class="hud-speedo">
+      <svg id="gauge" viewBox="0 0 200 200" width="230" height="230"></svg>
+      <div class="speedo-readout">
+        <div class="gear" id="gearNum">1</div>
+        <div class="speed-num" id="speedNum">0</div>
+        <div class="speed-unit">MPH</div>
+      </div>
+    </div>
   </div>
 
   <div id="banner" class="banner hidden"></div>
   <div id="plates"></div>
+
+  <!-- First-race onboarding. Three keys, shown as glyphs over the road and
+       retired the moment the player uses each one; skippable, and never shown
+       again once completed. Replaces the paragraph that used to live in the
+       lobby. -->
+  <div id="coach" class="coach hidden">
+    <div class="coach-row" data-coach="drive">
+      <span class="coach-keys"><b>W</b><b>↑</b></span><span class="coach-what">Accelerate</span>
+    </div>
+    <div class="coach-row" data-coach="steer">
+      <span class="coach-keys"><b>A</b><b>D</b></span><span class="coach-what">Steer</span>
+    </div>
+    <div class="coach-row" data-coach="nitro">
+      <span class="coach-keys"><b>SHIFT</b></span><span class="coach-what">Nitro — grab the canisters to fill it</span>
+    </div>
+    <button type="button" id="coachSkip" class="coach-skip">SKIP</button>
+  </div>
 
   <!-- Touch controls (phones/tablets) — inside #hud so they show only while racing -->
   <div id="touchUI" class="hidden">
@@ -97,6 +120,12 @@
       <button type="button" class="step-dot" data-step="4"><span class="sd-num">4</span><span class="sd-label">RACE</span></button>
     </div>
 
+    <!-- Everything between here and .step-nav scrolls; the nav below is PINNED.
+         That is what guarantees the primary action is reachable without
+         scrolling at any viewport height — on a 390 px-tall phone the card used
+         to run 848 px into a 279 px box and put every start button off-screen. -->
+    <div class="lobby-scroll" id="lobbyScroll">
+
     <!-- STEP 1 · DRIVER -->
     <section class="step" id="step1">
       <div class="step-title">Who's driving?</div>
@@ -106,9 +135,13 @@
         <input id="nameInput" maxlength="14" placeholder="Your name" autocomplete="off">
       </div>
       <div class="lobby-row">
+        <label>CAR</label>
+        <div id="carPicker" class="car-picker"></div>
+      </div>
+      <div class="lobby-row">
         <label>PAINT</label>
         <div id="swatches" class="swatches"></div>
-        <div class="paint-hint">That's your car on the track behind this panel — it repaints live as you pick.</div>
+        <div class="paint-hint">That's your car on the track behind this panel — it changes body and repaints live as you pick.</div>
       </div>
       <div class="lobby-row">
         <label for="quality">GRAPHICS</label>
@@ -216,17 +249,9 @@
       </div>
     </section>
 
-    <div class="step-nav">
-      <button type="button" id="stepBack" class="party-btn">← BACK</button>
-      <button type="button" id="stepNext" class="ready-btn next-btn">NEXT →</button>
-      <button type="button" id="quickBtn" class="party-btn quick-btn">⚡ QUICK RACE</button>
-    </div>
-
     <div class="controls-hint">
-      W/S or ↑/↓ throttle &amp; brake · A/D or ←/→ steer · SPACE handbrake · SHIFT nitro<br>
-      C camera (chase / driver / hood) · H horn · L lights · R reset · M mute<br>
-      Grab the glowing canisters on the road to fill your nitro, hold SHIFT to burn it<br>
-      Hold full steer at speed to power-drift the big corners · Gamepad supported
+      W/S throttle &amp; brake · A/D steer · SPACE handbrake · SHIFT nitro ·
+      C camera · H horn · L lights · R reset · M mute · Gamepad supported
     </div>
 
     <!-- Attribution for the CC-BY art and audio. Required by the licence, which
@@ -283,6 +308,16 @@
           CC BY 4.0 licence text — creativecommons.org/licenses/by/4.0/
         </div>
       </div>
+    </div>
+
+    </div><!-- /.lobby-scroll -->
+
+    <!-- PINNED. RACE NOW is present on every step and at every viewport size,
+         so starting a race never depends on scrolling or on reaching step 4. -->
+    <div class="step-nav">
+      <button type="button" id="stepBack" class="party-btn">← BACK</button>
+      <button type="button" id="stepNext" class="party-btn next-btn">NEXT →</button>
+      <button type="button" id="quickBtn" class="ready-btn quick-btn">▶ RACE NOW</button>
     </div>
   </div>
 </div>

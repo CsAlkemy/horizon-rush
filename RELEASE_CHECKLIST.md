@@ -3,14 +3,123 @@
 Target: Basic Launch first (no SDK), then Full Launch if invited.
 Requirements source: https://docs.crazygames.com/requirements/intro/
 
+> **Submitted and REJECTED 2026-08-14** — "The overall quality of the game does
+> not yet meet the expectations of our platform." That verdict names no defect,
+> so the build was played rather than re-read. What it found, and what was done
+> about it, is section 0 below. Everything under it was already green at
+> rejection time and was never the problem.
+
 ## The release command
 
 ```bash
 npm run build          # -> dist/, enforces the 50 MB / 1,500 file budgets
 npm run check          # self-contained? on-origin, no 404s, portal UI stripped
+npm run check:quality  # PLAYABLE? start button reachable, lands in a race,
+                       #   HUD never overlaps, rivals actually visible
 npm run check:iframe   # survives a real cross-origin embed? storage, input
 npm run zip            # -> noxrush-v1.0.0.zip, index.html at archive root
 ```
+
+## 0 · Quality remediation (post-rejection, 2026-08-14)
+
+Findings came from playing `dist/` in headless Chrome at 1280x720 and on an
+emulated iPhone (844x390 and 390x844, touch on). Every number below was
+measured, not estimated.
+
+### Failed QA on contact
+
+- [x] **A mobile player could not start a race.** At 844x390 the lobby card held
+      848 px of content in a 279 px scroll box; READY and QUICK RACE were both
+      below the fold with no scroll affordance. The card is now a fixed-height
+      flex column — head, one scrolling body (`.lobby-scroll`), and a **pinned**
+      `.step-nav` carrying `▶ RACE NOW`, which is never hidden on any step.
+      Verified: button fully inside the viewport and the card does not scroll,
+      at all three sizes
+- [x] **The game did not land in gameplay.** `main.js` sent every cold load to
+      step 1 of a four-step wizard whose primary control was a "driver name"
+      text field. A cold load now goes straight onto the grid with an
+      auto-generated name (`autoStart()`); the lobby is reached with the ☰
+      button in the HUD or from the results screen, and `?menu=1` opens it
+      directly. Audio arms on the first input instead of on a button press,
+      since booting into a race means there has not been one
+
+### The "quality" verdict
+
+- [x] **You never saw a rival.** The player was gridded LAST (slot 11 of 12) in
+      both `offline.js` and `server.js`, so the field launched out of sight and
+      the whole race was run on an empty road. The human now starts mid-pack
+      (`PLAYER_GRID = 5`, P6 of 12) with rivals ahead and behind from the first
+      frame; the countdown camera pulls back and aims up the road so the grid is
+      visible; AI pace spread narrowed (0.055 → 0.028 per place) and the
+      rubber-band widened (±6% saturating at 400 m → ±14% at 220 m).
+      **Measured: a rival on screen in 100% of samples, nearest rival 4–9 m**
+- [x] **Frame-rate desync — found while measuring the above, and the real
+      reason the HUD read "Position 12/12" for an entire race.** The render loop
+      clamped `dt` to 0.1 s while the rival AI advanced on their own wall-clock
+      `setInterval`. Below 10 fps the player simulated at `frames × 0.1` seconds
+      per second (40% of real time at 4 fps) while the field ran at 100%, so the
+      player slid to last and stayed there no matter how well they drove — a
+      fairness bug on exactly the low-end hardware a portal tests on. Render
+      clamp raised to 0.35 s; `LocalRace.tick` now advances by real elapsed time
+      instead of a fixed `AI_DT`; `aiThink` takes `dt` so its eased states stay
+      time-based. Before: the leader gained ~40 m every 1.5 s without end.
+      After: the gap holds around 130 m
+- [x] **A photoreal car in a programmer-art world.** The festival tents were
+      solid-colour six-sided cones floating at head height — the loudest
+      placeholder tell in the scene. They are now striped canopies on a frame
+      (valance, walls, centre pole, pennant) with bunting strung between them,
+      and there are grandstands with a crowd at start/finish. Note the crowd
+      texture is tiled at `[1.5, 1]` deliberately: the seating plane is ~28.5 x
+      9.2 m and the canvas is 2:1, so 2 repeats squash each spectator into a
+      vertical dash, and no repeat at all makes them three metres tall
+- [x] **HUD did not scale and overlapped itself.** Rebuilt as four corner zones
+      plus two centre zones, each scaled as a unit by `--hud-s` and anchored by
+      its own corner; readouts inside a zone use flex + gap, never absolute
+      offsets. Nitro now stacks with the speedo in one zone instead of being
+      pinned to `bottom: 244px`, which landed it on the position readout on a
+      short viewport. The skill feed moved out of centre screen (it sat over the
+      racing line), the progress percentage was dropped as redundant with lap +
+      minimap, and nameplates are capped at the four nearest cars — with a dense
+      grid every rival in shot wearing a label stacked into a pile of boxes.
+      **Measured: zero overlaps and nothing off-screen at all three sizes**
+- [x] **Rewards fired for nothing.** `gateIdx` was initialised to 0 while the
+      grid sits near `s = L` (behind the start line), so the first frame of
+      every race read a checkpoint crossing and paid out "Clean Racing +50",
+      which banked itself as "Skill Chain +55" a few seconds later while the car
+      was stationary at 0 mph. Fixed with `syncGate()`, called wherever the car
+      is placed. `addSkill()` now also refuses outside a running race, and Near
+      Miss requires the player to be moving (`speed > 12`) — on a packed
+      standing grid the field launching past a stationary player was clearing
+      the old closing-speed test
+
+### Depth
+
+- [x] **Car selection**, off the rival pack — seven de-branded bodies with paint
+      and wheel rigs already wired up, so this is real content at no asset cost.
+      Hero + 2 free, the rest one level apart. Picking one rebuilds the player's
+      car outright rather than patching it: the driver's eye point, the roof
+      meshes hidden in cockpit view and the headlight rig are all *measured*
+      from the model
+- [x] Paint unlocks relaxed — six free instead of four. A new player's first
+      screen was seven padlocks out of ten swatches
+- [x] **In-race onboarding** replaces the four-line paragraph in the lobby:
+      three key glyphs over the road, each retiring as the player uses that
+      control, skippable, capped at 18 s, and never shown twice
+- [ ] **Audio is the one item NOT done.** Every cue still runs on a synth
+      stand-in. `node scripts/install-foley.mjs --list` names seven cleared
+      Pixabay replacements (Content License, commercial use OK) and the
+      converter is ready — but Pixabay is behind Cloudflare, so the downloads
+      have to be done by hand, and what audio ships is a licensing call that is
+      **yours**. Licensed music beds are likewise unbought
+
+### Gate
+
+`npm run check:quality` (`scripts/check-quality.mjs`) asserts the four
+measurable gates on every build. Gate 5 — hand it to someone who has never seen
+it and watch — cannot be automated and is printed as a reminder.
+
+**As of 2026-08-14: 10/10 playability gates, 9/9 dist checks, 7/7 iframe
+checks, 14.79 MB / 34 files.**
 
 ### Playgama is a separate bundle
 

@@ -77,9 +77,24 @@ export function recordRace(trackId, lapMs, raceMs, medals) {
 
 export function pbFor(trackId) { return state.pbs[trackId] || null; }
 
-// Paints: the first four are free; each one after unlocks a level.
-// index 4 -> level 2, index 5 -> level 3, … index 9 -> level 7.
-export function paintLockLevel(index) { return index < 4 ? 1 : index - 2; }
+// Paints: the first SIX are free; the last four unlock a level apart.
+// index 6 -> level 2, 7 -> 3, 8 -> 4, 9 -> 5.
+//
+// Was four free and a level per paint up to 7, which meant a brand-new player
+// opened the game to seven padlocks out of ten swatches — a first choice that
+// reads as stingy rather than generous, before they have raced once. Six free
+// still leaves something to unlock without making the opening screen a wall of
+// locks, and the top level needed drops from 7 to 5.
+export function paintLockLevel(index) { return index < 6 ? 1 : index - 4; }
+
+// Cars. Index -1 is the hero model and is always available; pack bodies are
+// indexed 0..n-1, the first two free and the rest a level apart. This is the
+// main progression axis — a new body changes what you look at for a whole race,
+// where a new paint changes a swatch.
+export function carLockLevel(index) { return index < 0 ? 1 : index < 2 ? 1 : index; }
+export function carUnlocked(index, level = levelForXP(state.xp)) {
+  return level >= carLockLevel(index);
+}
 export function paintUnlocked(index, level = levelForXP(state.xp)) {
   return level >= paintLockLevel(index);
 }

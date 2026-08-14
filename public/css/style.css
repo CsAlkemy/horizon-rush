@@ -19,37 +19,69 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 .dim { opacity: .78; font-weight: 600; }
 .mono { font-variant-numeric: tabular-nums; }
 
-/* ============================== HUD ============================== */
-#hud { position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 10; }
+/* ============================== HUD ==============================
+   Layout contract: the HUD is four corner zones plus two centre zones. Every
+   readout lives inside exactly one zone and is laid out there with flex + gap.
+   A zone is scaled as a whole by --hud-s and anchored by its own corner, so
+   shrinking the HUD can never make two readouts collide — which is what the
+   old fixed offsets (`.nitro-wrap { bottom: 244px }` against a 390 px-tall
+   viewport) did. Change --hud-s in the breakpoints at the end of this block;
+   never re-anchor an individual readout. */
+#hud {
+  position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 10;
+  --hud-s: 1;
+  --hud-pad: 24px;
+}
 
+.hud-zone {
+  position: absolute;
+  display: flex; flex-direction: column;
+  text-shadow: var(--hud-shadow);
+}
 .hud-topleft {
-  position: absolute; top: 22px; left: 26px; width: 240px;
-  text-shadow: var(--hud-shadow);
+  top: var(--hud-pad); left: var(--hud-pad);
+  align-items: flex-start; gap: 6px;
+  transform: scale(var(--hud-s)); transform-origin: top left;
 }
-.progress-label {
-  font-size: 15px; font-weight: 700; letter-spacing: .04em;
-}
-.progress-label #progressPct { font-size: 26px; font-weight: 800; font-style: italic; }
-.progress-bar {
-  margin-top: 4px; height: 5px; width: 200px;
-  background: rgba(255, 255, 255, .25); border-radius: 3px; overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0,0,0,.5);
-}
-#progressFill { height: 100%; width: 0%; background: var(--cyan); border-radius: 3px; }
-.time-row { margin-top: 7px; font-size: 15px; font-weight: 700; letter-spacing: .04em; }
-.time-row .mono { font-size: 17px; font-weight: 800; font-style: italic; margin-left: 6px; }
-
 .hud-topright {
-  position: absolute; top: 18px; right: 30px; text-align: right;
-  text-shadow: var(--hud-shadow);
-  font-size: 20px; font-weight: 700; letter-spacing: .04em;
+  top: var(--hud-pad); right: var(--hud-pad);
+  align-items: flex-end; gap: 8px;
+  transform: scale(var(--hud-s)); transform-origin: top right;
 }
-.hud-topright #posNum { font-size: 46px; font-weight: 800; font-style: italic; margin-left: 8px; }
-.hud-topright .pos-total { font-size: 26px; font-weight: 800; font-style: italic; opacity: .85; }
+.hud-bottomleft {
+  bottom: var(--hud-pad); left: var(--hud-pad);
+  align-items: flex-start; gap: 8px;
+  transform: scale(var(--hud-s)); transform-origin: bottom left;
+}
+.hud-bottomright {
+  bottom: var(--hud-pad); right: var(--hud-pad);
+  align-items: flex-end; gap: 6px;
+  transform: scale(var(--hud-s)); transform-origin: bottom right;
+}
+
+.time-row { font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+.time-row .mono { font-size: 18px; font-weight: 800; font-style: italic; margin-left: 6px; }
+
+.pos-block { text-align: right; font-size: 18px; font-weight: 700; letter-spacing: .04em; }
+.pos-block #posNum { font-size: 44px; font-weight: 800; font-style: italic; margin-left: 8px; }
+.pos-block .pos-total { font-size: 24px; font-weight: 800; font-style: italic; opacity: .85; }
+
+/* Menu: the only way back to the lobby now that the game boots into a race. */
+.menu-btn {
+  pointer-events: auto; cursor: pointer;
+  width: 40px; height: 40px; border-radius: 9px;
+  border: 1px solid rgba(255,255,255,.3); background: rgba(10,14,20,.5);
+  color: #fff; font-size: 19px; line-height: 1; font-family: var(--font);
+  display: grid; place-items: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .14s, border-color .14s;
+}
+.menu-btn:hover { background: rgba(53,224,230,.28); border-color: var(--cyan); }
 
 /* Checkpoint marker — horizontally tracks the gate on screen */
 .checkpoint {
-  position: absolute; top: 9%; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 9%; left: 50%;
+  transform: translateX(-50%) scale(var(--hud-s)); transform-origin: top center;
   text-align: center; text-shadow: var(--hud-shadow); transition: opacity .3s;
 }
 .cp-dist { font-size: 22px; font-weight: 800; font-style: italic; color: #ffe9a8; }
@@ -57,15 +89,19 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 .cp-label { font-size: 13px; font-weight: 700; letter-spacing: .06em; opacity: .9; }
 
 /* Skill chain */
+/* Clears the checkpoint block above it by that block's own scaled height, so
+   the two centre readouts cannot touch at any scale. A flat percentage put them
+   36 px apart on a 1280x720 desktop and overlapping on a 390 px-tall phone. */
 .chain {
-  position: absolute; top: 17%; left: 50%; transform: translateX(-50%);
+  position: absolute; top: calc(9% + 100px * var(--hud-s)); left: 50%;
+  transform: translateX(-50%) scale(var(--hud-s)); transform-origin: top center;
   color: var(--yellow); text-shadow: var(--hud-shadow); text-align: center;
   font-size: 30px; font-weight: 800; font-style: italic;
 }
 .chain-mult { font-size: 20px; margin-left: 6px; opacity: .95; }
-#skillFeed {
-  position: absolute; top: 40%; left: 33%; width: 300px; text-align: center;
-}
+/* In the top-left zone, under lap/time. It used to sit at top:40% left:33% —
+   straight over the racing line, and on a phone straight over the road. */
+#skillFeed { margin-top: 4px; width: 260px; text-align: left; }
 .skill-pop {
   color: #fff; text-shadow: var(--hud-shadow);
   font-size: 19px; font-weight: 800; font-style: italic; letter-spacing: .02em;
@@ -83,7 +119,6 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 }
 
 /* Minimap */
-.hud-bottomleft { position: absolute; left: 26px; bottom: 24px; }
 #minimap {
   width: 180px; height: 180px; border-radius: 50%;
   background: rgba(10, 14, 20, .55);
@@ -97,8 +132,8 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 .chip-ico { opacity: .9; }
 .chip-link { color: var(--cyan); font-size: 11px; }
 
-/* Speedometer */
-.hud-speedo { position: absolute; right: 22px; bottom: 14px; width: 230px; height: 230px; }
+/* Speedometer — sits in the bottom-right zone under the nitro meter. */
+.hud-speedo { position: relative; width: 230px; height: 230px; }
 .speedo-readout { position: absolute; right: 16px; bottom: 30px; text-align: right; color: #fff; text-shadow: var(--hud-shadow); }
 .gear {
   display: inline-block; font-size: 30px; font-weight: 800; font-style: italic;
@@ -107,9 +142,10 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 .speed-num { font-size: 64px; font-weight: 800; font-style: italic; line-height: .95; letter-spacing: -.02em; }
 .speed-unit { font-size: 16px; font-weight: 700; letter-spacing: .14em; opacity: .85; }
 
-/* Nitro meter — sits just above the speedo */
+/* Nitro meter — a flex sibling of the speedo inside the bottom-right zone, so
+   the two move together instead of being pinned to independent offsets. */
 .nitro-wrap {
-  position: absolute; right: 26px; bottom: 244px; width: 190px;
+  width: 190px; margin-right: 8px;
   display: flex; align-items: center; gap: 8px;
   color: #fff; text-shadow: var(--hud-shadow);
 }
@@ -165,6 +201,56 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
   to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
+/* ---------------- first-race coach ----------------
+   Sits low-centre, clear of every HUD zone and above the touch clusters. Each
+   row retires itself as the player uses that control. */
+/* Low and left of centre: the chase camera puts the car dead centre and a
+   little above the bottom edge, so a centred prompt sits on the bodywork and
+   the road ahead — the two things the player is trying to look at. */
+.coach {
+  position: absolute; left: 50%; bottom: 4%;
+  transform: translateX(-50%) scale(var(--hud-s)); transform-origin: bottom center;
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  pointer-events: none;
+}
+.coach-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 7px 14px; border-radius: 9px;
+  background: rgba(10, 14, 22, .62); border: 1px solid rgba(255,255,255,.14);
+  animation: coachIn .35s ease-out;
+}
+.coach-row.done { animation: coachOut .45s ease-in forwards; }
+.coach-keys { display: flex; gap: 5px; }
+.coach-keys b {
+  display: grid; place-items: center; min-width: 28px; height: 28px; padding: 0 7px;
+  border-radius: 6px; background: rgba(255,255,255,.9); color: #12161d;
+  font-size: 13px; font-weight: 800; letter-spacing: .04em;
+  box-shadow: 0 2px 0 rgba(255,255,255,.35);
+}
+.coach-what { font-size: 14px; font-weight: 700; letter-spacing: .03em; color: #eef2f8; }
+.coach-skip {
+  pointer-events: auto; cursor: pointer; margin-top: 2px;
+  padding: 5px 14px; border-radius: 7px;
+  border: 1px solid rgba(255,255,255,.2); background: rgba(10,14,22,.6);
+  color: #b9c2d2; font-family: var(--font); font-size: 10.5px; font-weight: 800; letter-spacing: .16em;
+}
+.coach-skip:hover { color: #fff; background: rgba(255,255,255,.12); }
+@keyframes coachIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes coachOut { to { opacity: 0; transform: translateY(-8px) scale(.94); } }
+
+/* ---------------- HUD scale breakpoints ----------------
+   One knob. Height drives it, because a landscape phone is short before it is
+   narrow, and the speedo + minimap are what run out of vertical room first. */
+@media (max-height: 780px) { #hud { --hud-s: .86; --hud-pad: 20px; } }
+@media (max-height: 620px) { #hud { --hud-s: .72; --hud-pad: 16px; } }
+@media (max-height: 500px) { #hud { --hud-s: .58; --hud-pad: 12px; } }
+@media (max-height: 400px) { #hud { --hud-s: .48; --hud-pad: 10px; } }
+@media (max-width: 620px) { #hud { --hud-s: .68; } }
+@media (max-width: 420px) { #hud { --hud-s: .56; } }
+@media (prefers-reduced-motion: reduce) {
+  .skill-pop, .coach-row, .banner, .countdown span { animation-duration: .01ms !important; }
+}
+
 /* ============================== COUNTDOWN ============================== */
 .countdown {
   position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -192,22 +278,30 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
     rgba(8, 12, 22, .95) 0%, rgba(8, 12, 22, .92) 32%,
     rgba(9, 15, 28, .55) 52%, rgba(10, 20, 38, .12) 70%, rgba(10, 20, 38, 0) 84%);
 }
+/* The card is a fixed-height flex column: head, ONE scrolling body, pinned nav.
+   The card itself must never scroll — if it does, the primary action can leave
+   the viewport, which is exactly the fault this structure exists to prevent. */
 .lobby-card {
-  width: min(460px, 92vw); max-height: 94vh; overflow-y: auto;
+  width: min(460px, 92vw); max-height: 94vh;
+  display: flex; flex-direction: column; overflow: hidden;
   background: rgba(13, 18, 28, .92); border: 1px solid rgba(255,255,255,.08);
-  border-radius: 14px; padding: 26px 30px 20px; color: #e8ecf4;
+  border-radius: 14px; padding: 22px 26px 16px; color: #e8ecf4;
   box-shadow: 0 30px 80px rgba(0,0,0,.6);
+}
+.lobby-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding-right: 6px; margin-right: -6px;
   scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent;
 }
 /* A default scrollbar reads as a bright bar down the middle of the screen next
    to the car, so it is toned down to match the card. */
-.lobby-card::-webkit-scrollbar { width: 8px; }
-.lobby-card::-webkit-scrollbar-track { background: transparent; }
-.lobby-card::-webkit-scrollbar-thumb {
+.lobby-scroll::-webkit-scrollbar { width: 8px; }
+.lobby-scroll::-webkit-scrollbar-track { background: transparent; }
+.lobby-scroll::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,.18); border-radius: 4px;
   border: 2px solid transparent; background-clip: content-box;
 }
-.lobby-card::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.32); background-clip: content-box; }
+.lobby-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.32); background-clip: content-box; }
 
 .logo { text-align: center; font-style: italic; font-weight: 800; letter-spacing: .02em; }
 .logo-a {
@@ -226,6 +320,26 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 }
 .lobby-row input:focus, .lobby-row select:focus { border-color: var(--cyan); }
 .lobby-row select option { background: #141a26; }
+
+/* Car picker — chips rather than thumbnails: the chosen body is already on the
+   track behind the panel, so a second small picture of it adds nothing. */
+.car-picker { display: flex; gap: 7px; flex-wrap: wrap; }
+.car-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 11px; border-radius: 8px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05);
+  color: #cfd6e4; font-family: var(--font); font-size: 11.5px; font-weight: 800;
+  letter-spacing: .06em; transition: border-color .14s, background .14s;
+}
+.car-chip:hover { background: rgba(255,255,255,.1); color: #fff; }
+.car-chip.sel {
+  border-color: var(--cyan); background: rgba(53,224,230,.12); color: #fff;
+  box-shadow: 0 0 0 1px rgba(53,224,230,.45);
+}
+.car-chip.hero { color: var(--yellow); }
+.car-chip.hero.sel { color: #fff; }
+.car-chip.locked { opacity: .45; }
+.car-chip .cc-lock { font-size: 10px; font-weight: 700; opacity: .8; }
 
 .swatches { display: flex; gap: 9px; flex-wrap: wrap; }
 .swatch {
@@ -268,9 +382,16 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
   font-size: 19px; font-weight: 800; font-style: italic; letter-spacing: .02em;
   margin-bottom: 13px; color: #f2f5fa;
 }
-.step-nav { display: flex; gap: 9px; margin-top: 14px; align-items: stretch; }
-#stepBack { flex: 0 0 auto; }
-.next-btn { flex: 1; margin-top: 0; padding: 11px; font-size: 14px; }
+/* Pinned footer. RACE NOW is the primary action and is never hidden, so the
+   game is always one tap from starting regardless of step or viewport. */
+.step-nav {
+  flex: 0 0 auto; display: flex; gap: 8px; align-items: stretch;
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,.09);
+}
+#stepBack, #stepNext { flex: 0 0 auto; }
+.next-btn { padding: 11px 13px; font-size: 12px; }
+.quick-btn { flex: 1; margin-top: 0; padding: 13px; font-size: 15px; }
 
 /* track cards */
 .map-cards { display: flex; flex-direction: column; gap: 9px; }
@@ -344,9 +465,7 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 }
 .mc-badge.empty { color: #8f97a6; background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.14); }
 
-/* quick race */
-.quick-btn { color: var(--yellow); border-color: rgba(255,210,61,.45); }
-.quick-btn:hover { background: rgba(255,210,61,.12); color: #ffe9a8; }
+/* RACE NOW — the pinned primary action; styling lives with .step-nav above. */
 
 /* daily challenge banner */
 .daily-banner {
@@ -533,7 +652,7 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
     background: linear-gradient(184deg,
       rgba(10, 20, 38, 0) 0%, rgba(9, 15, 28, .40) 18%, rgba(8, 12, 22, .93) 34%);
   }
-  .lobby-card { max-height: 72vh; padding: 20px 22px 16px; }
+  .lobby-card { max-height: 82vh; padding: 18px 20px 14px; }
   /* 44px of italic display type overflows a phone-width card. */
   .logo-a, .logo-b { font-size: 32px; }
   .logo-b { margin-left: 0; }
@@ -545,7 +664,30 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
   .mode-card { flex-direction: row; align-items: center; gap: 10px; }
   .mode-card .mc-sub { flex: 1; }
   .mc-thumb { width: 128px; height: 64px; }
-  .step-dot .sd-label { display: none; }
+}
+
+/* Short viewport (landscape phone). The card takes the full height it is given
+   and the head shrinks to almost nothing, so the scrolling body — and the
+   pinned RACE NOW under it — both keep usable room. The step labels stay: if
+   they will not fit, the dots go, not the words. */
+@media (max-height: 560px) {
+  #lobby { align-items: center; padding: 1.5vh 0; }
+  .lobby-card { max-height: 97vh; width: min(520px, 94vw); padding: 12px 18px 10px; }
+  .logo-a, .logo-b { font-size: 24px; }
+  .tagline { display: none; }
+  .steps { margin-bottom: 10px; }
+  .step-dot { padding: 5px 4px; }
+  .step-dot .sd-num { width: 17px; height: 17px; font-size: 10px; }
+  .step-dot .sd-label { font-size: 8.5px; letter-spacing: .1em; }
+  .step-title { font-size: 15px; margin-bottom: 9px; }
+  .controls-hint { font-size: 10.5px; }
+  .step-nav { margin-top: 9px; padding-top: 9px; }
+  .quick-btn { padding: 11px; font-size: 14px; }
+}
+/* Narrower than the four dots can hold text: drop the dots, keep the labels
+   readable by letting the row wrap to the numbers alone. */
+@media (max-width: 380px) {
+  .step-dot .sd-label { font-size: 8px; letter-spacing: .04em; }
 }
 
 /* ============================== RESULTS ============================== */
@@ -608,12 +750,37 @@ body { font-family: var(--font); user-select: none; -webkit-user-select: none; }
 .touch-nitro { border-color: rgba(255,180,0,.55); }
 .touch-nitro.on { background: rgba(255,180,0,.35); border-color: #ffb400; }
 
-/* Touch layouts: get the default HUD out of the thumbs' way */
+/* Touch layouts: lift the two bottom zones clear of the thumb clusters.
+   --touch-h is the height the buttons actually occupy, so the zones move as one
+   with them instead of being re-pinned by hand. */
+#touchUI { --touch-btn: 86px; --touch-gas: 104px; --touch-bottom: 24px; }
+#touchUI { --touch-h: calc(var(--touch-gas) + var(--touch-bottom) + 12px); }
+.touch-cluster { bottom: var(--touch-bottom); }
+.touch-btn { width: var(--touch-btn); height: var(--touch-btn); }
+.touch-gas { width: var(--touch-gas); height: var(--touch-gas); }
+.touch-small { width: calc(var(--touch-btn) * .74); height: calc(var(--touch-btn) * .74); }
+
 @media (pointer: coarse) {
   #minimap { width: 120px; height: 120px; }
-  .hud-bottomleft { bottom: 130px; }
-  .hud-speedo { transform: scale(.72); transform-origin: bottom right; bottom: 128px; }
-  .nitro-wrap { width: 150px; bottom: 300px; }
+  #hud:has(#touchUI:not(.hidden)) .hud-bottomleft,
+  #hud:has(#touchUI:not(.hidden)) .hud-bottomright { bottom: 128px; }
+  .coach { bottom: 34%; }
+}
+/* Short landscape phone: the buttons themselves have to give ground too. */
+@media (pointer: coarse) and (max-height: 500px) {
+  #touchUI { --touch-btn: 62px; --touch-gas: 74px; --touch-bottom: 12px; }
+  #hud:has(#touchUI:not(.hidden)) .hud-bottomleft,
+  #hud:has(#touchUI:not(.hidden)) .hud-bottomright { bottom: 90px; }
+  #minimap { width: 96px; height: 96px; }
+  .player-chip { display: none; }
+}
+/* :has() is recent — without it the zones keep their default corner, which is
+   still collision-free, just closer to the thumbs. This fallback pushes them up
+   unconditionally on coarse pointers so older engines are not left worse off. */
+@supports not selector(:has(*)) {
+  @media (pointer: coarse) {
+    .hud-bottomleft, .hud-bottomright { bottom: 128px; }
+  }
 }
 
 /* ---------------------------------------------------------------- portal build

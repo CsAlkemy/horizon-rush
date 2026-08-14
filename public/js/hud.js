@@ -61,8 +61,6 @@ export class HUD {
     this.gauge(st.mph);
     $('posNum').textContent = st.pos;
     $('posTotal').textContent = '/' + st.total;
-    $('progressPct').textContent = Math.floor(st.progress * 100) + '%';
-    $('progressFill').style.width = (st.progress * 100).toFixed(1) + '%';
     $('raceTime').textContent = fmtTime(st.time);
     $('lapNum').textContent = `${Math.min(st.lap, st.laps)}/${st.laps}`;
     if (st.cpYd !== null) {
@@ -99,6 +97,27 @@ export class HUD {
     feed.appendChild(div);
     while (feed.children.length > 3) feed.removeChild(feed.firstChild);
     setTimeout(() => div.remove(), 1700);
+  }
+
+  // ------------------------------------------------ first-race coach
+  // Three rows, each retired the moment the player uses that control. Returns
+  // true while any row is still showing, so the caller can stop feeding it.
+  coachShow(on) {
+    const el = $('coach');
+    if (!el) return;
+    el.classList.toggle('hidden', !on);
+  }
+
+  coachDone(which) {
+    const row = document.querySelector(`.coach-row[data-coach="${which}"]`);
+    if (!row || row.classList.contains('done')) return false;
+    row.classList.add('done');
+    setTimeout(() => row.remove(), 500);
+    return true;
+  }
+
+  coachRemaining() {
+    return document.querySelectorAll('.coach-row:not(.done)').length;
   }
 
   banner(text, ms = 2600) {

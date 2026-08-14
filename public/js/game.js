@@ -5,7 +5,7 @@ import { buildTrack, TOTAL_LAPS, wrapAngle, ROAD_Y } from '../shared/track.js';
 import { stepCar, CAR } from '../shared/physics.js';
 import * as store from './store.js';
 import { buildWorld } from './world.js';
-import { createCar, animateCar, setLights, setPaint, carTemplateConfig } from './car.js';
+import { createCar, animateCar, setLights, setPaint, carTemplateConfig, setPlayerCar } from './car.js';
 import { HUD, toast, fmtTime } from './hud.js';
 import { readInput, updateHaptics } from './input.js';
 import { updateEngine, sfx, setHorn, setNitro, setMusicScene } from './audio.js';
@@ -18,6 +18,10 @@ const CAM_LABELS = { chase: 'CHASE CAM', cockpit: 'DRIVER VIEW', hood: 'HOOD CAM
 
 const MPH = 2.23694;
 const YD = 1.09361;
+
+// Where the car parks for the lobby turntable. Matches PLAYER_GRID in
+// offline.js, so the car does not jump across the grid when a race starts.
+const LOBBY_SLOT = 5;
 
 // Nitro tuning: the meter is 0..100, a pickup adds a chunk, holding SHIFT
 // burns it. A full meter is ~3 s of boost.
@@ -53,7 +57,7 @@ export class Game {
     this.fx = new DriftFX(this.scene);   // tire smoke + rubber marks
 
     // Local car state
-    const g = this.track.gridSlot(11);
+    const g = this.track.gridSlot(LOBBY_SLOT);
     this.car = { x: g.x, z: g.z, h: g.h, vx: 0, vz: 0, s: g.s };
     this.lap = 0; // grid is behind the start line; first crossing begins lap 1
     this.prevS = g.s;
@@ -84,8 +88,7 @@ export class Game {
     this.driftPts = 0; this.driftIdle = 0;
     this.draftPts = 0; this.drafting = false;
     this.missCooldown = new Map();
-    this.cleanSinceGate = true;
-    this.gateIdx = 0;
+    this.syncGate();         // seeds gateIdx + cleanSinceGate from the parked car
     this.raceXP = 0;         // banked skill chains + finish/medal bonuses
     this.finishStats = null; // PB/medal outcome, shown on the results screen
 
@@ -97,6 +100,9 @@ export class Game {
     this._lastPos = -1;      // for overtake callouts
     this._lastOvertakeAt = 0;
     this._lastLostAt = 0;
+
+    this.coachOn = false;
+    document.getElementById('coachSkip')?.addEventListener('click', () => this.endCoach());
 
     this.camMode = store.getItem('hr_cam') || 'chase';
     if (!CAM_MODES.includes(this.camMode)) this.camMode = 'chase';
@@ -122,6 +128,23 @@ export class Game {
     // accumulator remainder and draw THAT; the camera follows it too.
     this._prevPose = { x: g.x, z: g.z, h: g.h };
     this._viewPose = { x: g.x, z: g.z, h: g.h };
+  }
+
+  // Seed the checkpoint index from where the car actually IS.
+  //
+  // The starting grid sits BEHIND the start line, i.e. near s = L, which is
+  // inside the last checkpoint sector. Leaving gateIdx at 0 meant the very
+  // first frame of every race saw idx (7) != gateIdx (0), read it as a gate
+  // crossing, and paid out "Clean Racing +50" — which then banked itself as
+  // "Skill Chain +55" about four seconds later, while the car was still
+  // stationary at 0 mph and the player had not touched a control. A reward for
+  // nothing in the opening seconds teaches the player that the rewards are
+  // noise, so this must be seeded wherever the car is (re)placed.
+  syncGate() {
+    const NCP = (this.world && this.world.checkpoints.length) || 1;
+    const L = this.track.L || 1;
+    this.gateIdx = Math.floor(Math.max(0, this.car.s) / (L / NCP)) % NCP;
+    this.cleanSinceGate = true;
   }
 
   // Collapse the interpolation history onto the car's current state. Needed
@@ -170,6 +193,7 @@ export class Game {
       this.lapStart = this.t0;
       this.hud.banner('GO!', 1200);
       sfx.go();
+      this.startCoach();
     });
     net.on('snap', (m) => {
       if (!inRace()) return;
@@ -179,6 +203,7 @@ export class Game {
     net.on('results', (m) => {
       if (!inRace()) return;
       this.phase = 'results';
+      this.endCoach();
       // Bank this race's XP exactly once, when the results land.
       let gain = null;
       if (this.raceXP > 0) {
@@ -229,6 +254,7 @@ export class Game {
 
   setIdentity(name, color) {
     this.myName = name;
+    this.myPaint = color;
     if (!this.myVisual) {
       this.myVisual = createCar(color, { spoiler: true, kind: 'player' });
       this.scene.add(this.myVisual.group);
@@ -240,6 +266,20 @@ export class Game {
     }
     if (this.previewMode) this.showFullBody(true);
     document.getElementById('chipName').textContent = name.toUpperCase();
+  }
+
+  // Swap the player's car body. The visual is rebuilt outright rather than
+  // patched: the driver's eye point, the roof meshes hidden in cockpit view and
+  // the headlight rig are all MEASURED from the model, so a new body has to go
+  // through the same construction path a fresh one does.
+  setPlayerCarModel(idx) {
+    setPlayerCar(idx);
+    if (this.myVisual) {
+      this.scene.remove(this.myVisual.group);
+      this.myVisual = null;
+      this.roofMeshes = [];
+    }
+    this.setIdentity(this.myName || 'Player', this.myPaint);
   }
 
   // The showroom turntable looks at the car from outside, so a saved cockpit
@@ -454,10 +494,10 @@ export class Game {
     this.world = buildWorld(this.scene, this.renderer, this.track, this.quality, this.treeModel, this.billboardModel);
     this.buildPickups();
     this.hud.setTrack(this.track);
-    const g = this.track.gridSlot(11);
+    const g = this.track.gridSlot(LOBBY_SLOT);
     this.car = { x: g.x, z: g.z, h: g.h, vx: 0, vz: 0, s: g.s };
     this.prevS = g.s;
-    this.gateIdx = 0;
+    this.syncGate();
     this.syncPose();
     // Snap the camera to the new circuit rather than flying it across the map.
     this._camPos.set(g.x - Math.sin(g.h) * 8, 4, g.z - Math.cos(g.h) * 8);
@@ -478,7 +518,6 @@ export class Game {
     this.bestLap = 0;
     this.chainPts = 0; this.chainMult = 1;
     this.driftPts = 0; this.draftPts = 0;
-    this.gateIdx = 0; this.cleanSinceGate = true;
     this.raceXP = 0; this.finishStats = null;
     this.nitro = 0; this.nitroOn = false;
     this.resetPickups();
@@ -506,6 +545,9 @@ export class Game {
         if (v) { v.x = slot.x; v.z = slot.z; v.h = slot.h; v.sp = 0; }
       }
     }
+    // AFTER the grid slot has been applied — gateIdx has to come from where the
+    // car actually sits, not from where it sat a moment ago.
+    this.syncGate();
     this.hud.show();
     const trackName = this.track.def.name.toUpperCase() + (this.track.def.reversed ? ' ⟲ REVERSED' : '');
     this.hud.banner(`${trackName} — ${this.laps} LAPS`, 1800);
@@ -518,6 +560,7 @@ export class Game {
   toLobby() {
     this.hud.hideResults();
     this.hud.hide();
+    this.endCoach();
     setMusicScene('lobby');
     this.phase = 'lobby';
     this.previewMode = true;
@@ -526,9 +569,10 @@ export class Game {
     this.order = [];
     this.syncRoster([]);
     if (this.net) this.net.resetBuffers();
-    const g = this.track.gridSlot(11);
+    const g = this.track.gridSlot(LOBBY_SLOT);
     this.car = { x: g.x, z: g.z, h: g.h, vx: 0, vz: 0, s: g.s };
     this.prevS = g.s;
+    this.syncGate();
     this.syncPose();
     this.chainPts = 0; this.chainMult = 1;
     this.hud.chain(0, 1);
@@ -599,6 +643,43 @@ export class Game {
     animateCar(g, sp, 0, 0, dt);
   }
 
+  // ---------------------------------------------------------------- coach
+  // Onboarding happens IN the race, not in a paragraph in the lobby: three key
+  // glyphs over the road, each retiring the moment the player uses that
+  // control, and skippable. Shown once ever — the flag is stored, so a returning
+  // player is never taught again. Touch players get their own labelled buttons,
+  // so the keyboard prompts are pointless for them.
+  startCoach() {
+    this.coachOn = false;
+    if (store.getItem('hr_coached')) return;
+    if (matchMedia('(pointer: coarse)').matches) return;
+    if (this.hud.coachRemaining() === 0) return;
+    this.coachOn = true;
+    this.coachUntil = performance.now() + 18000;
+    this.hud.coachShow(true);
+  }
+
+  endCoach() {
+    if (!this.coachOn) return;
+    this.coachOn = false;
+    this.hud.coachShow(false);
+    store.setItem('hr_coached', '1');
+  }
+
+  coachTick(input) {
+    if (!this.coachOn) return;
+    if (input.throttle > 0.55) this.hud.coachDone('drive');
+    if (Math.abs(input.steer) > 0.4) this.hud.coachDone('steer');
+    if (this.nitroOn) this.hud.coachDone('nitro');
+    // Never let it outstay its welcome: gone once every control has been used,
+    // by the end of the opening lap, or after 18 s — whichever comes first. A
+    // prompt for a control the player never happens to need (nitro, if they
+    // collect no canisters) must not sit on screen for the whole race.
+    if (this.hud.coachRemaining() === 0 || this.lap > 1 || performance.now() > this.coachUntil) {
+      this.endCoach();
+    }
+  }
+
   // ---------------------------------------------------------------- rivals
   // Position-change callouts, driven from server standings. Overtakes feed the
   // skill chain (they're XP); losing a place gets a subdued feed line.
@@ -622,6 +703,10 @@ export class Game {
 
   // ---------------------------------------------------------------- skills
   addSkill(label, pts, cls = '') {
+    // Nothing scores outside a running race. Belt and braces alongside
+    // syncGate(): no cue may fire on the grid, during the countdown, or after
+    // the flag.
+    if (this.phase !== 'race' || this.finished) return;
     this.chainPts += pts;
     this.chainMult = Math.min(3, this.chainMult + 0.1);
     this.lastSkill = performance.now();
@@ -652,7 +737,11 @@ export class Game {
       const side = dx * fz - dz * fx;
       if (ahead > 5 && ahead < 26 && Math.abs(side) < 2.4 && speed > 26) draftNow = true;
       const dist = Math.hypot(dx, dz);
-      if (dist < 3.4 && Math.abs(speed - o.sp) > 7) {
+      // `speed > 12` matters as much as the closing rate: on a packed standing
+      // grid the field launches past a stationary player, which cleared the
+      // old speed-difference test and paid out Near Miss for sitting still.
+      // A near miss you did not drive is not a near miss.
+      if (dist < 3.4 && speed > 12 && Math.abs(speed - o.sp) > 7) {
         const last = this.missCooldown.get(o.id) || 0;
         if (now - last > 4000) {
           this.missCooldown.set(o.id, now);
@@ -823,7 +912,16 @@ export class Game {
   // ---------------------------------------------------------------- frame
   frame() {
     const now = performance.now();
-    let dt = Math.min(0.1, (now - this.lastT) / 1000);
+    // The clamp is a spiral-of-death guard, but it also decides the LOWEST
+    // frame rate at which this car still moves in real time — and the rival AI
+    // advance on their own wall-clock timer, not on this loop. At the old 0.1 s
+    // a machine rendering below 10 fps simulated the player at frames*0.1
+    // seconds per second (40% of real time at 4 fps) while the field ran at
+    // 100%, so the player slid to last and stayed there no matter how well they
+    // drove. That is a fairness bug on exactly the low-end hardware a portal
+    // tests on. 0.35 s keeps the player in real time down to ~3 fps; below that
+    // the game is not playable anyway.
+    let dt = Math.min(0.35, (now - this.lastT) / 1000);
     this.lastT = now;
 
     // Track viewport changes every frame (resize events can be missed in
@@ -855,6 +953,7 @@ export class Game {
     input.nitro = this.nitroOn ? 1 : 0;
     if (this.nitroOn) this.nitro = Math.max(0, this.nitro - NITRO_BURN * dt);
     setNitro(this.nitroOn);
+    if (racing) this.coachTick(input);
 
     if (input.camCycle) {
       this.setCamMode(CAM_MODES[(CAM_MODES.indexOf(this.camMode) + 1) % CAM_MODES.length]);
@@ -1083,17 +1182,27 @@ export class Game {
       // Wide: the menu is a column down one side. Narrow: it is a sheet along the
       // bottom, leaving only a strip, so the camera backs off to fit the car in.
       const wide = innerWidth >= 900;
+      const grid = this.phase === 'countdown';
       const a = now * (preview ? 0.00030 : 0.00022);
       // Far enough back that the whole car stays inside the frame once it is
-      // pushed off-centre by the aim offset below.
-      const r = preview ? (wide ? 9.6 : 12.6) : (this.phase === 'countdown' ? 9 : 14);
-      const camY = preview ? 2.15 : 3.2;
+      // pushed off-centre by the aim offset below. The countdown pulls back and
+      // rises: it is the only moment the whole field is in one shot, and seeing
+      // eleven rivals on the grid is what tells the player this is a race.
+      const r = preview ? (wide ? 9.6 : 12.6) : (grid ? 13.5 : 14);
+      const camY = preview ? 2.15 : (grid ? 4.4 : 3.2);
       const tx = car.x + Math.sin(a) * r;
       const tz = car.z + Math.cos(a) * r;
       this._camPos.lerp(this._tmpV.set(tx, camY, tz), Math.min(1, dt * 2.2));
       cam.position.copy(this._camPos);
 
       let lx = car.x, lz = car.z, ly = 1;
+      if (grid) {
+        // Aim up the road, so the rows gridded ahead fill the frame instead of
+        // just our own bodywork.
+        lx = car.x + Math.sin(car.h) * 11;
+        lz = car.z + Math.cos(car.h) * 11;
+        ly = 1.6;
+      }
       if (preview) {
         // Aiming to one side of the car slides it into the screen space the menu
         // panel is not covering: sideways on a wide window, upward on a narrow
@@ -1238,17 +1347,27 @@ export class Game {
     // minimap + plates (the minimap rotates with the car — feed it the same
     // interpolated pose the camera uses so it doesn't tick at physics rate)
     this.hud.minimap(this._viewPose, others, this.pickups);
-    for (const o of others) {
+
+    // Nameplates, nearest first, and only the closest few. With the player
+    // gridded mid-pack the field is genuinely dense now, and every rival in
+    // shot wearing a label turned the middle of the screen into a stack of
+    // overlapping boxes on the standing start. The nearest cars are the ones
+    // whose identity matters; the rest are just traffic.
+    const PLATE_MAX = 4;
+    const ranked = others
+      .map(o => ({ o, d: Math.hypot(o.x - this.car.x, o.z - this.car.z) }))
+      .sort((a, b) => a.d - b.d);
+    for (let k = 0; k < ranked.length; k++) {
+      const { o, d } = ranked[k];
       const i = this.order.indexOf(o.id);
       this.hud.ensurePlate(o.id, o.name, i >= 0 ? i + 1 : '·', o.human);
       this._tmpV.set(o.x, 2.15, o.z).project(this.camera);
-      const dx = o.x - this.car.x, dz = o.z - this.car.z;
-      const d = Math.hypot(dx, dz);
-      const visible = this._tmpV.z < 1 && d < 95 && Math.abs(this._tmpV.x) < 1.05 && Math.abs(this._tmpV.y) < 1.05;
+      const inShot = this._tmpV.z < 1 && d < 95
+        && Math.abs(this._tmpV.x) < 1.05 && Math.abs(this._tmpV.y) < 1.05;
       this.hud.placePlate(o.id,
         (this._tmpV.x * 0.5 + 0.5) * innerWidth,
         (-this._tmpV.y * 0.5 + 0.5) * innerHeight,
-        visible);
+        inShot && k < PLATE_MAX);
     }
   }
 

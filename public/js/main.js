@@ -5,13 +5,14 @@ import { LocalRace } from './offline.js';
 import { initAudio, sfx, setMusicOn, musicStatus, setMuted } from './audio.js';
 import { toast } from './hud.js';
 import { loadCarTemplate, loadCarPack, loadSceneryModel } from './carModels.js';
-import { setCarTemplate, setCarPack } from './car.js';
+import { setCarTemplate, setCarPack, setPlayerCar, packNames } from './car.js';
 import { bindTouchUI } from './input.js';
 import { PORTAL } from './build.js';
 import { TRACKS } from '../shared/track.js';
 import * as store from './store.js';
 import { initSdk, gameReady, showInterstitial, onPlatform } from './sdk.js';
-import { getProgress, xpForLevel, paintUnlocked, paintLockLevel, pbFor, addXP } from './progress.js';
+import { getProgress, xpForLevel, paintUnlocked, paintLockLevel, pbFor, addXP,
+  carUnlocked, carLockLevel } from './progress.js';
 
 // The portal SDK, if this build has one, comes up alongside the models: it owns
 // the player's saved progress on platforms where localStorage does not persist,
@@ -142,6 +143,54 @@ function buildSwatches() {
   });
 }
 buildSwatches();
+
+// ---------------------------------------------------------------- car picker
+// The hero body plus every car in the rival pack. Selecting one rebuilds the
+// player's car on the lobby turntable immediately, so the choice is visible
+// while it is being made.
+const CAR_NAMES = packNames();
+// Number(null) is 0, not NaN — reading the store straight into Number() would
+// silently hand every new player pack car 0 instead of the hero body.
+const savedCar = store.getItem('hr_car');
+let carIdx = (savedCar === null || savedCar === undefined || savedCar === '') ? -1 : Number(savedCar);
+if (!Number.isInteger(carIdx) || carIdx < -1 || carIdx >= CAR_NAMES.length) carIdx = -1;
+if (!carUnlocked(carIdx)) carIdx = -1;
+setPlayerCar(carIdx);
+
+function prettyCar(n) {
+  return String(n).replace(/[_-]+/g, ' ').replace(/\d+$/, '').trim().toUpperCase() || 'RIVAL';
+}
+
+function buildCarPicker() {
+  const box = $('carPicker');
+  if (!box) return;
+  box.innerHTML = '';
+  const entries = [[-1, 'KESTREL GT'], ...CAR_NAMES.map((n, i) => [i, prettyCar(n)])];
+  for (const [i, label] of entries) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const unlocked = carUnlocked(i);
+    b.className = 'car-chip' + (i === carIdx ? ' sel' : '') + (i === -1 ? ' hero' : '') + (unlocked ? '' : ' locked');
+    b.innerHTML = unlocked ? label : `${label} <span class="cc-lock">🔒 L${carLockLevel(i)}</span>`;
+    b.addEventListener('click', () => {
+      if (!unlocked) {
+        toast(`🔒 ${label} unlocks at level ${carLockLevel(i)} — bank skill chains to level up`);
+        return;
+      }
+      if (i === carIdx) return;
+      carIdx = i;
+      store.setItem('hr_car', String(i));
+      game.setPlayerCarModel(i);
+      buildCarPicker();
+      sfx.click();
+    });
+    box.appendChild(b);
+  }
+}
+buildCarPicker();
+// setIdentity above already built the car with the hero body, so a saved pack
+// choice has to rebuild it once at boot.
+if (carIdx >= 0) game.setPlayerCarModel(carIdx);
 
 // driver level chip (step 1)
 function renderDriver() {
@@ -278,7 +327,7 @@ for (const d of document.querySelectorAll('#dirSeg [data-dir]')) {
 applyMap({ send: false });
 
 // Lobby refresh after a race banks XP: level chip, unlocks, PBs.
-game.onProgress = () => { renderDriver(); buildSwatches(); renderTrackBadges(); };
+game.onProgress = () => { renderDriver(); buildSwatches(); buildCarPicker(); renderTrackBadges(); };
 
 // Portal wiring. All three no-op on the LAN and CrazyGames builds, which ship
 // no SDK at all — see sdk.js.
@@ -345,7 +394,9 @@ function showStep(n) {
   }
   $('stepBack').classList.toggle('hidden', step === 1);
   $('stepNext').classList.toggle('hidden', step === 4);
-  $('quickBtn').classList.toggle('hidden', step === 4);
+  // RACE NOW is never hidden. It lives in the pinned footer, so on any viewport
+  // — including a 390 px-tall phone where the card's body scrolls — starting a
+  // race is one tap and never depends on reaching step 4 or scrolling to it.
   if (step === 4) renderSummary();
 }
 $('stepNext').addEventListener('click', () => { showStep(step + 1); sfx.click(); });
@@ -354,6 +405,9 @@ for (const d of document.querySelectorAll('.step-dot')) {
   d.addEventListener('click', () => { showStep(+d.dataset.step); sfx.click(); });
 }
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') showStep(2); });
+// Which step the menu opens ON. Returning drivers get the race step; a driver
+// who has never set a name gets the driver step. This is no longer what the
+// player sees first, though — see autoStart() below.
 showStep(store.getItem('hr_name') ? 4 : 1);
 
 // Tell the platform the first playable frame is up, one frame after the lobby
@@ -805,9 +859,64 @@ $('backBtn').addEventListener('click', () => {
   sfx.click();
 });
 
+// ---------------------------------------------------------------- boot to race
+// CrazyGames requires a game to "land directly in gameplay". The old front door
+// was step 1 of a four-step wizard whose primary control was a text field
+// asking the player to type a name — a keyboard gate ahead of the first frame
+// of play, and the single most common reason a portal rejects a build.
+//
+// So: a cold load goes straight onto the grid. The lobby still exists and holds
+// everything it always did — it is reached with the ☰ button in the HUD or from
+// the results screen, and `?menu=1` boots into it for testing.
+const DRIVER_WORDS = ['Nox', 'Apex', 'Turbo', 'Vortex', 'Blaze', 'Comet', 'Falcon', 'Rogue', 'Zenith', 'Drift'];
+function autoName() {
+  return DRIVER_WORDS[Math.floor(Math.random() * DRIVER_WORDS.length)] + (10 + Math.floor(Math.random() * 89));
+}
+
+function autoStart() {
+  if (new URLSearchParams(location.search).get('menu') === '1') return false;
+  if (!$('nameInput').value) $('nameInput').value = autoName();
+  mode = 'bot';
+  store.setItem('hr_mode', mode);
+  paintModeSeg();
+  const name = currentName();
+  store.setItem('hr_name', name);
+  game.setIdentity(name, paint);
+  // Deliberately the in-browser engine rather than sendReady(): it needs no
+  // server, so booting cannot race the socket coming up, and it behaves
+  // identically on a portal build where there is no socket at all. The 'grid'
+  // message it delivers synchronously is what hides the lobby.
+  offline.start(map, name, paint, 'bot');
+  return true;
+}
+
+// Audio needs a user gesture, and booting into a race means there hasn't been
+// one yet. Arm the context on the first input of any kind instead.
+function armAudioOnce() {
+  initAudio();
+  removeEventListener('pointerdown', armAudioOnce);
+  removeEventListener('keydown', armAudioOnce);
+  removeEventListener('touchstart', armAudioOnce);
+}
+addEventListener('pointerdown', armAudioOnce);
+addEventListener('keydown', armAudioOnce);
+addEventListener('touchstart', armAudioOnce);
+
+// ☰ in the HUD — the way back to the lobby now that it is not the front door.
+$('menuBtn')?.addEventListener('click', () => {
+  if (champ) { champ = null; }
+  $('champBox').classList.add('hidden');
+  net.send({ t: 'lobby' });
+  game.toLobby();
+  showLobby();
+  renderDaily();
+  sfx.click();
+});
+
 bindTouchUI();
 renderDaily();
 net.connect();
 game.start();
+autoStart();
 window.__game = game;         // debug hooks
 window.__music = musicStatus;

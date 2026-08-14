@@ -80,7 +80,12 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 const ORIGIN = `http://127.0.0.1:${port}`;
-const pageUrl = ORIGIN + SUBPATH;
+// ?menu=1 opens the lobby instead of booting straight onto the grid. The
+// portal-UI assertions below test that FRIENDS / party / LAN are *suppressed*,
+// and they read `offsetParent`, so against the normal boot-into-race path they
+// would pass trivially by virtue of the whole lobby being hidden. Forcing the
+// menu open keeps those four assertions meaningful.
+const pageUrl = ORIGIN + SUBPATH + '?menu=1';
 
 const profile = mkdtempSync(join(tmpdir(), 'checkdist-'));
 const dbg = 9700 + (process.pid % 250);
