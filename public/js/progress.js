@@ -1,19 +1,30 @@
-// Driver progression, kept in localStorage: lifetime XP + level, per-track
+// Driver progression, kept in the player store: lifetime XP + level, per-track
 // personal bests and medals, and the paint-unlock rules. Pure data/logic — no
 // DOM, no three.js — so the game and the lobby UI both lean on it.
+
+// The `hr_` prefix predates the rename to NoxRush and is deliberately kept:
+// these keys are the only copy of a player's level, XP, personal bests and
+// medals, so renaming them to `rb_` would silently wipe every existing player's
+// progression. Same reasoning for the other hr_* keys (name, paint, map, mode,
+// cam, quality, ghost, daily, music). Change them only with a migration step.
+import * as store from './store.js';
 
 const KEY = 'hr_progress';
 
 function load() {
   try {
-    const p = JSON.parse(localStorage.getItem(KEY));
+    const p = JSON.parse(store.getItem(KEY));
     if (p && typeof p === 'object') return { xp: Math.max(0, p.xp | 0), pbs: p.pbs || {} };
   } catch {}
   return { xp: 0, pbs: {} };   // pbs[trackId] = { lap: ms, race: ms, medal: 'gold'|'silver'|'bronze' }
 }
 let state = load();
+// On a portal build the authoritative save lives with the platform and arrives
+// after this module has already evaluated, so re-read when it lands. Without
+// this a returning player would see level 1 until their next reload.
+store.onRefresh(() => { state = load(); });
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {}
+  try { store.setItem(KEY, JSON.stringify(state)); } catch {}
 }
 
 // Level curve: quadratic, so the first level-up lands in a race or two and
@@ -66,9 +77,24 @@ export function recordRace(trackId, lapMs, raceMs, medals) {
 
 export function pbFor(trackId) { return state.pbs[trackId] || null; }
 
-// Paints: the first four are free; each one after unlocks a level.
-// index 4 -> level 2, index 5 -> level 3, … index 9 -> level 7.
-export function paintLockLevel(index) { return index < 4 ? 1 : index - 2; }
+// Paints: the first SIX are free; the last four unlock a level apart.
+// index 6 -> level 2, 7 -> 3, 8 -> 4, 9 -> 5.
+//
+// Was four free and a level per paint up to 7, which meant a brand-new player
+// opened the game to seven padlocks out of ten swatches — a first choice that
+// reads as stingy rather than generous, before they have raced once. Six free
+// still leaves something to unlock without making the opening screen a wall of
+// locks, and the top level needed drops from 7 to 5.
+export function paintLockLevel(index) { return index < 6 ? 1 : index - 4; }
+
+// Cars. Index -1 is the hero model and is always available; pack bodies are
+// indexed 0..n-1, the first two free and the rest a level apart. This is the
+// main progression axis — a new body changes what you look at for a whole race,
+// where a new paint changes a swatch.
+export function carLockLevel(index) { return index < 0 ? 1 : index < 2 ? 1 : index; }
+export function carUnlocked(index, level = levelForXP(state.xp)) {
+  return level >= carLockLevel(index);
+}
 export function paintUnlocked(index, level = levelForXP(state.xp)) {
   return level >= paintLockLevel(index);
 }

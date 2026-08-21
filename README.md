@@ -1,20 +1,24 @@
-# HORIZON RUSH
+# NOXRUSH
 
-A browser-based LAN arcade racer in the spirit of Forza Horizon — smooth
-antialiased 3D (no pixel art), three circuits (coastal, alpine, desert), ten
-drivatar-style AI opponents, and a Horizon-style HUD with skill chains.
+![NoxRush](branding/noxrush.png)
+
+A browser-based LAN arcade racer — smooth antialiased 3D (no pixel art), three
+circuits (coastal, alpine, desert), ten adaptive AI opponents, and a
+festival-style HUD with skill chains.
 
 Runs entirely on your machine. Your friend joins from their own browser over
 your local network — no accounts, no internet, no build step.
 
 ## Running it
 
+From the repo directory:
+
 ```bash
-npm install --prefix horizon-rush
+npm install
 ```
 
 ```bash
-npm start --prefix horizon-rush
+npm start
 ```
 
 The server prints the two addresses you need:
@@ -38,16 +42,16 @@ your pick immediately. In a FRIENDS race, the first driver to hit READY picks
 the track for everyone.
 
 In a hurry? **⚡ QUICK RACE** on any step drops you straight onto the grid
-against the drivatars.
+against the rivals.
 
 Then pick who you're racing:
 
 | Race against | Grid | Starts when |
 | --- | --- | --- |
-| **BOTS** | You plus eleven drivatars | The moment *you* hit READY |
+| **BOTS** | You plus eleven rivals | The moment *you* hit READY |
 | **FRIENDS** | Only the drivers on your LAN, no AI | Everyone in your group is ready |
 | **TIME TRIAL** | Just you — and the ghost of your best lap | Instantly |
-| **CHAMPIONSHIP** | Three-race series vs the drivatars, F1-style points | Instantly |
+| **CHAMPIONSHIP** | Three-race series vs the rivals, F1-style points | Instantly |
 
 **TIME TRIAL** replays your fastest lap as a translucent ghost car that
 relaunches with you at every line crossing — beat it and the new lap becomes
@@ -55,7 +59,7 @@ the ghost. **CHAMPIONSHIP** runs Coastal → Alpine → Sunset (in your chosen
 direction) with points per finish; the series pays a big XP bonus. There's
 also a **📅 DAILY CHALLENGE** on the RACE step — a date-seeded track combo,
 same for everyone that day, with bonus XP for your first run. And the
-drivatars **rubber-band gently** (±6% of top speed, never their cornering), so
+rivals **rubber-band gently** (±6% of top speed, never their cornering), so
 the pack stays contested without ever being unbeatable.
 
 When a server is running it also keeps **track records** — the all-time top
@@ -66,7 +70,7 @@ pays XP); losing a place gets called too.
 **BOTS** never waits for anyone, so a friend who is still choosing a colour — or a
 browser tab someone forgot about — can't hold you up. Humans start at the back of
 the AI grid so there's a field to work through. BOTS races don't even need the
-server to be reachable — the drivatars and the whole race run in your browser,
+server to be reachable — the rivals and the whole race run in your browser,
 so the game works fully offline (or statically hosted); the same code drives
 them either way.
 
@@ -91,7 +95,7 @@ anyone your group is still waiting on, and once two or more of you are ready a
 **START NOW WITHOUT THEM** button appears so a stale tab can never strand the
 drivers who actually want to go.
 
-Races are independent, so these can overlap: you can be lapping the drivatars
+Races are independent, so these can overlap: you can be lapping the rivals
 while two other people run a head-to-head on the same server.
 
 After the flag, **RACE AGAIN** re-runs the same kind of race and **BACK TO LOBBY**
@@ -164,7 +168,7 @@ sees your lights come on.
 Set via environment variables:
 
 ```bash
-LAPS=5 PORT=8080 npm start --prefix horizon-rush
+LAPS=5 PORT=8080 npm start
 ```
 
 Graphics quality (High/Medium/Low) is per-player in the lobby — it changes

@@ -4,12 +4,14 @@
 // message protocol as the server — it receives the client's normal `send()`
 // traffic and delivers `grid`/`count`/`go`/`snap`/`results` back through the
 // Net event bus — so the Game class cannot tell the difference.
-import { buildTrack, TOTAL_LAPS, GRID_SLOTS } from '/shared/track.js';
-import { stepCar } from '/shared/physics.js';
-import { AI_ROSTER, makeAI, aiThink } from '/shared/ai.js';
+import { buildTrack, TOTAL_LAPS, GRID_SLOTS } from '../shared/track.js';
+import { stepCar } from '../shared/physics.js';
+import { AI_ROSTER, makeAI, aiThink } from '../shared/ai.js';
 
 const AI_DT = 1 / 30;
 const PLAYER_ID = 'you';
+// Which grid slot the human takes (0 = pole). Mid-pack — see the note in start().
+const PLAYER_GRID = 5;
 
 export class LocalRace {
   constructor(net) {
@@ -19,7 +21,7 @@ export class LocalRace {
     this.countTimer = null;
   }
 
-  // kind: 'bot' (full drivatar grid) or 'trial' (solo time trial, empty track).
+  // kind: 'bot' (full rival grid) or 'trial' (solo time trial, empty track).
   start(mapId, name, color, kind = 'bot') {
     this.stop();
     this.active = true;
@@ -36,8 +38,17 @@ export class LocalRace {
       ...this.ai.map(a => ({ id: a.id, name: a.name, color: a.color, human: false })),
       { id: PLAYER_ID, name: this.player.name, color, human: true },
     ];
+    // Grid order: rivals fastest-first, with the player slotted into the MIDDLE
+    // of the pack rather than tacked on the end. Starting P12 of 12 meant the
+    // field launched away and the player raced an empty road for three laps —
+    // a racing game in which you never see an opponent. From P6 there are
+    // rivals ahead to chase and rivals behind in the mirrors from frame one.
+    // A time trial has no rivals, so the player lands on slot 0 either way.
+    const ids = this.ai.map(a => a.id);
+    ids.splice(Math.min(PLAYER_GRID, ids.length), 0, PLAYER_ID);
+
     const slots = [];
-    [...this.ai.map(a => a.id), PLAYER_ID].forEach((id, i) => {
+    ids.forEach((id, i) => {
       const g = this.track.gridSlot(i);
       slots.push({ id, x: g.x, z: g.z, h: g.h, s: g.s });
       const a = this.ai.find(v => v.id === id);
@@ -66,6 +77,7 @@ export class LocalRace {
       }
     }, 1000);
 
+    this._lastTick = 0;
     this.timer = setInterval(() => this.tick(), 1000 * AI_DT);
   }
 
@@ -121,6 +133,16 @@ export class LocalRace {
   tick() {
     if (this.phase !== 'race' && this.phase !== 'countdown') return;
 
+    // Advance by real elapsed time rather than a fixed AI_DT. setInterval is
+    // not a clock: browsers throttle it (background tabs clamp to 1 Hz) and it
+    // drifts under load, and any slip between the rivals' clock and the
+    // player's render loop shows up directly as the field pulling away or
+    // falling back for no reason the player can see. Clamped like the render
+    // loop so a resumed tab steps once, not a hundred times.
+    const now = Date.now();
+    const dt = this._lastTick ? Math.min(0.35, (now - this._lastTick) / 1000) : AI_DT;
+    this._lastTick = now;
+
     if (this.phase === 'race') {
       const allCars = [
         ...this.ai.map(a => ({ id: a.id, x: a.car.x, z: a.car.z })),
@@ -131,8 +153,8 @@ export class LocalRace {
         humanProgress = (this.player.state.lap | 0) * this.track.L + (this.player.state.s || 0);
       }
       for (const a of this.ai) {
-        aiThink(a, allCars, this.track, humanProgress);
-        stepCar(a.car, a.input, AI_DT, this.track);
+        aiThink(a, allCars, this.track, humanProgress, dt);
+        stepCar(a.car, a.input, dt, this.track);
         if (a.prevS > this.track.L * 0.9 && a.car.s < this.track.L * 0.1) {
           a.lap++;
           if (!a.finished && a.lap > this.laps) {

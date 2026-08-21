@@ -1,12 +1,24 @@
 // Audio: synthesized engine/wind/skid beds plus recorded car foley one-shots
 // from public/audio (see public/audio/README.md for the file mapping), and a
 // background-music channel (synthesized lofi, or a user-supplied music.mp3).
+import { HAS_FOLEY } from './build.js';
+import * as store from './store.js';
+
 let ctx = null, master = null, muted = false;
 let engine = null, wind = null, skid = null;
 let noiseBuf = null;   // shared white noise (wind/skid/drums/vinyl)
 
 // ---------------------------------------------------------------- sample bank
-const SAMPLES = {
+// Engine loops always ship (Pixabay Content License). The foley one-shots are
+// split out because a build can legitimately leave them behind — every cue that
+// uses them has a synth stand-in, so `HAS_FOLEY: false` costs nothing but the
+// recordings, and skipping the fetches keeps a static build from requesting
+// files that were never copied.
+const ENGINE_SAMPLES = {
+  engineLow:  'engine-low.wav',
+  engineHigh: 'engine-high.wav',
+};
+const FOLEY_SAMPLES = {
   ignition:   'ignition.wav',
   impact:     'impact.wav',
   scrape:     'scrape.wav',
@@ -14,9 +26,10 @@ const SAMPLES = {
   gridUp:     'grid-up.wav',
   panel:      'panel.wav',
   reset:      'reset.wav',
-  engineLow:  'engine-low.wav',
-  engineHigh: 'engine-high.wav',
 };
+const SAMPLES = HAS_FOLEY
+  ? { ...FOLEY_SAMPLES, ...ENGINE_SAMPLES }
+  : { ...ENGINE_SAMPLES };
 
 // Measured fundamentals of the two engine loops (see public/audio/README.md).
 // Playback rate is derived from these, so they must match the shipped files.
@@ -29,7 +42,7 @@ const decoded = {};   // name -> AudioBuffer, once a context is available
 // Fetching needs no AudioContext, so start immediately at page load; decoding
 // happens as soon as the first user gesture lets us create the context.
 for (const [name, file] of Object.entries(SAMPLES)) {
-  fetch('/audio/' + file)
+  fetch('audio/' + file)
     .then(r => (r.ok ? r.arrayBuffer() : null))
     .then(a => { if (a) { encoded[name] = a; if (ctx) decodeOne(name); } })
     .catch(() => {});
@@ -155,7 +168,10 @@ export function initAudio() {
 const MUSIC_VOL = { lobby: 0.30, race: 0.16 };
 let music = null;
 let musicOn = true;
-try { musicOn = localStorage.getItem('hr_music') !== 'off'; } catch {}
+try { musicOn = store.getItem('hr_music') !== 'off'; } catch {}
+// Same reason as progress.js: a portal build's saved preference arrives after
+// this module evaluates.
+store.onRefresh(() => { try { musicOn = store.getItem('hr_music') !== 'off'; } catch {} });
 let musicScene = 'lobby';
 const musicTarget = () => (musicOn ? MUSIC_VOL[musicScene] : 0);
 
@@ -166,7 +182,7 @@ export function setMusicScene(scene) {
 
 export function setMusicOn(on) {
   musicOn = !!on;
-  try { localStorage.setItem('hr_music', musicOn ? 'on' : 'off'); } catch {}
+  try { store.setItem('hr_music', musicOn ? 'on' : 'off'); } catch {}
   if (music && ctx) music.gain.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.4);
   else if (musicOn) startMusic();
 }
@@ -186,9 +202,9 @@ async function startMusic() {
   music = { gain, mode: 'lofi', bars: 0 };
 
   try {
-    const head = await fetch('/audio/music.mp3', { method: 'HEAD' });
+    const head = await fetch('audio/music.mp3', { method: 'HEAD' });
     if (head.ok) {
-      const el = new Audio('/audio/music.mp3');
+      const el = new Audio('audio/music.mp3');
       el.loop = true;
       ctx.createMediaElementSource(el).connect(gain);
       await el.play().catch(() => {});
@@ -328,7 +344,14 @@ export function engineStatus() {
 }
 
 export function toggleMute() {
-  muted = !muted;
+  return setMuted(!muted);
+}
+
+// Explicit mute, for callers that know which way they want it — the portal SDK
+// silences the game while an interstitial plays or the tab is backgrounded, and
+// a toggle would invert the state instead of restoring it.
+export function setMuted(on) {
+  muted = !!on;
   if (master) master.gain.value = muted ? 0 : 0.55;
   return muted;
 }

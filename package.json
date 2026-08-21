@@ -1,11 +1,19 @@
 {
-  "name": "horizon-rush",
+  "name": "noxrush",
   "version": "1.0.0",
   "type": "module",
   "private": true,
-  "description": "LAN arcade racer for the browser — Forza Horizon inspired",
+  "description": "Browser-based arcade racer \u2014 festival-style circuit racing over LAN",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build": "node scripts/build-web.js",
+    "check": "node scripts/check-dist.mjs",
+    "check:quality": "node scripts/check-quality.mjs",
+    "check:iframe": "node scripts/check-iframe.mjs",
+    "zip": "node scripts/make-zip.mjs",
+    "build:playgama": "node scripts/build-web.js --playgama",
+    "check:playgama": "node scripts/check-dist.mjs --dir dist-playgama",
+    "zip:playgama": "node scripts/make-zip.mjs --dir dist-playgama"
   },
   "engines": {
     "node": ">=18"

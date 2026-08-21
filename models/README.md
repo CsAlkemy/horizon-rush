@@ -29,15 +29,19 @@ turns it with the front wheels (see below).
 `ultimate_low-poly_car_pack.glb` — **the bot grid.** "Ultimate Low-Poly Car
 Pack" by ProbablyNotG (CC-BY 4.0 — see `CREDITS.md`). 3.1 MB, 33,584 triangles
 for the whole pack. It holds 14 cars under `RootNode`, but each appears twice
-(`Zenvo` / `Zenvo.001`), so 7 unique cars are used: Zenvo, Sterrato, Artura,
-Mercedes, Ford, Ferrari, Land Rover — ≈3,400 triangles each, vs ~207,500 for
-the player's Kestrel, which is why bots can afford a real model at all.
+(`Vantor` / `Vantor.001`), so 7 unique cars are used: **Vantor, Dunecross,
+Aerix, Bastion, Halcyon, Vulpine, Warden** — ≈3,400 triangles each, vs ~207,500
+for the player's Kestrel, which is why bots can afford a real model at all.
 
-> **Trademark warning.** These are recognisable real-world cars and the pack's
-> node names are the brands themselves (`Ferrari`, `Mercedes`, `Ford`,
-> `Land Rover`). The CC-BY licence covers redistribution; it says nothing about
-> trade dress or trademarks, and unlike `kestrel_gt.glb` these have not been
-> de-badged or reshaped. See `RELEASE_CHECKLIST.md` before publishing.
+Those are fictional names applied by `scripts/rebrand-glb.mjs`; the pack shipped
+with the real marques as node names. Re-run that script if you add another pack —
+`--check` dry-runs it. It also scans mesh/material/texture names, so it will tell
+you if a brand string is hiding somewhere other than the node table.
+
+> **Residual trademark warning.** Renaming stops the file asserting a brand, but
+> the shapes are still recognisable real-world cars, and unlike `kestrel_gt.glb`
+> they have not been reshaped or de-badged in-mesh. CC-BY covers copyright in the
+> meshes, not trade dress. See `RELEASE_CHECKLIST.md` before publishing.
 
 ## The `bots` manifest section
 

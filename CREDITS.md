@@ -1,5 +1,14 @@
 # Credits & asset licences
 
+> **This file is the long form. The build carries its own copy.** CC-BY requires
+> attribution wherever the game runs, and a portal's store-page description field
+> does not travel with the ZIP — so the lobby has a **CREDITS & LICENCES** panel
+> (`#creditsBox` in `public/index.html`) naming every creator, title, licence and
+> source URI. Anything added here that ships in `dist/` must be added there too.
+>
+> URIs in that panel are plain text, not links: game portals disallow outbound
+> links, and CC-BY asks for a URI, which plain text satisfies.
+
 ## 3D models
 
 ### "Kestrel GT" (`models/kestrel_gt.glb`) — ACTIVE
@@ -14,11 +23,28 @@ decal quads and their logo texture, and the rear show-lattice were removed, and
 the taillight elements were reshaped (vertically compressed) so the light
 signature no longer matches the donor car.
 
+**De-branded in-file 2026-08-13** (`scripts/rebrand-glb.mjs`): the de-badging
+above removed what a player could *see*, but the file itself still asserted the
+marque — five node names (`volvo_Body`, `volvo_Wheel_×4`) and three material
+names (`lightsbasekspolestarngr_×3`). Those now read `kestrel_*` and
+`bodypanel_*`. `models/manifest.json` pins the four wheel nodes by name and was
+updated in the same step.
+
+The `asset.extras` block still names the donor car, and that is deliberate: it
+carries the CC-BY author, licence, title and source, which the licence obliges
+us to keep and which this file already states publicly. Stripping it would
+trade a trade-dress worry for a licence breach.
+
+**Compressed 2026-08-13**: meshopt (`gltf-transform meshopt`, adding
+`EXT_meshopt_compression` + `KHR_mesh_quantization`), 11.65 MB → 5.50 MB with no
+visible change. The loader attaches `MeshoptDecoder` in `carModels.js`.
+
 > All brand emblems, logos and model-name decals have been removed and detail
-> geometry altered; no trademarked name or mark appears in-game. The overall
-> silhouette still derives from the donor car, so a residual trade-dress
-> resemblance remains — judged acceptable for a stylized arcade game, but the
-> procedural car stays the zero-risk fallback (delete `manifest.json`).
+> geometry altered; no trademarked name or mark appears in-game, and none
+> remains in any name table inside the file. The overall silhouette still
+> derives from the donor car, so a residual trade-dress resemblance remains —
+> judged acceptable for a stylized arcade game, but the procedural car stays the
+> zero-risk fallback (delete `manifest.json`).
 
 ### Bot cars (`models/ultimate_low-poly_car_pack.glb`) — ACTIVE
 "Ultimate Low-Poly Car Pack" (https://skfb.ly/pKnv8) by **ProbablyNotG** is
@@ -31,13 +57,29 @@ merged four-wheel meshes cut into per-corner wheels, and its `Paint` node
 recoloured per driver. Used for the AI grid only; the player drives
 `kestrel_gt.glb`. Cleared for commercial use with this attribution.
 
-> **Trademark caveat, distinct from the licence.** CC-BY covers copyright in the
-> models; it grants nothing regarding trade dress or trademarks. These cars are
-> recognisable real-world designs and the pack's own node names are the brands
-> (`Ferrari`, `Mercedes`, `Ford`, `Land Rover`) — those strings ship inside the
-> .glb. Unlike `kestrel_gt.glb` they have **not** been de-badged or reshaped, so
-> the residual-resemblance risk accepted for the player's car applies here
-> sevenfold. Tracked in `RELEASE_CHECKLIST.md`.
+**De-branded 2026-08-13** (`scripts/rebrand-glb.mjs`): all 14 car node names in
+the .glb were marque or model names of the real cars — `Zenvo`, `Sterrato`,
+`Artura`, `Mercedes`, `Ford`, `Ferrari`, `Land Rover` — and shipped inside the
+file. They now carry fictional names, in the spirit of the player car's
+"Kestrel GT":
+
+| In-file name | Was | Body style |
+| --- | --- | --- |
+| `Vantor` | Zenvo | angular hypercar |
+| `Dunecross` | Sterrato | lifted rally supercar |
+| `Aerix` | Artura | mid-engine coupe |
+| `Bastion` | Mercedes | boxy 4x4 |
+| `Halcyon` | Ford | hot hatch |
+| `Vulpine` | Ferrari | low hypercar |
+| `Warden` | Land Rover | luxury SUV |
+
+Geometry, materials and UVs are untouched — only the name strings changed.
+
+> **Residual trademark caveat.** CC-BY covers copyright in the meshes; it grants
+> nothing regarding trade dress. Renaming removes the brand *assertion* from the
+> file, but the shapes are still recognisable real-world designs, and unlike
+> `kestrel_gt.glb` they have not been reshaped or de-badged in-mesh. Tracked in
+> `RELEASE_CHECKLIST.md`.
 
 ### Trees (`models/low_poly_trees.glb`)
 "Low poly trees"

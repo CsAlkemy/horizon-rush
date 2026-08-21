@@ -1,9 +1,9 @@
 // Car mesh factory — smooth rounded shapes + clearcoat paint so cars read
-// glossy under the environment map, Forza-style. Nose faces +Z.
+// glossy under the environment map, showroom-style. Nose faces +Z.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { instantiateTemplate } from './carModels.js';
-import { CAR } from '/shared/physics.js';
+import { CAR } from '../shared/physics.js';
 
 // Set once at boot by main.js when models/manifest.json is present.
 let template = null;
@@ -16,6 +16,17 @@ let botPack = [];
 let botTurn = 0;
 export function setCarPack(list) { botPack = list || []; botTurn = 0; }
 export function botPackSize() { return botPack.length; }
+
+// Which car the PLAYER drives: -1 = the hero model from the manifest, 0..n-1 =
+// a body from the rival pack. Cars are the progression axis now, because the
+// pack already ships seven distinct de-branded bodies with paint and wheel rigs
+// wired up — real content at no extra asset cost, unlike a fourth circuit.
+let playerCarIdx = -1;
+export function setPlayerCar(i) {
+  playerCarIdx = Number.isInteger(i) && i >= 0 && i < botPack.length ? i : -1;
+}
+export function playerCarIndex() { return playerCarIdx; }
+export function packNames() { return botPack.map(t => t.name); }
 
 const glassMat = new THREE.MeshPhysicalMaterial({
   color: 0x0c1118, metalness: 0.9, roughness: 0.08, envMapIntensity: 1.4,
@@ -77,6 +88,11 @@ function templateFor(kind, variant) {
   if (kind === 'ai' && botPack.length) {
     const i = Number.isInteger(variant) ? variant : botTurn++;
     return botPack[((i % botPack.length) + botPack.length) % botPack.length];
+  }
+  // A player who has picked a pack body gets it even when no hero model is
+  // configured, so this is tested before the `template` guard below.
+  if (kind === 'player' && playerCarIdx >= 0 && botPack.length) {
+    return botPack[playerCarIdx % botPack.length];
   }
   if (!template) return null;
   switch (template.cfg.applyTo || 'humans') {

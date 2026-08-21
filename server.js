@@ -1,4 +1,4 @@
-// HORIZON RUSH — LAN server.
+// NOXRUSH — LAN server.
 // Serves the game, relays player state over WebSocket, simulates AI opponents,
 // and runs the race state machine (lobby -> countdown -> race -> results).
 //
@@ -6,7 +6,7 @@
 // opponent modes want different start rules: a BOTS race belongs to one driver
 // and starts the moment they are ready, while a FRIENDS race is shared and waits
 // for the group. Several can run at once — one person can be lapping the
-// drivatars while two others run a head-to-head.
+// rivals while two others run a head-to-head.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -234,8 +234,14 @@ function rosterOf(race) {
 }
 
 function placeGrid(race) {
-  // AI up front, humans at the back of the grid (authentic Horizon start).
-  const ids = [...race.ai.map(a => a.id), ...race.members];
+  // Humans slotted into the MIDDLE of the field, not behind all of it. Starting
+  // dead last meant the AI launched out of sight and the whole race was run on
+  // an empty road; from mid-pack there are rivals both ahead and behind from
+  // the first frame. Mirrors PLAYER_GRID in public/js/offline.js — the two
+  // engines must grid identically or a LAN race and a solo race feel different.
+  const ids = [...race.ai.map(a => a.id)];
+  const at = Math.min(5, ids.length);
+  ids.splice(at, 0, ...race.members);
   const slots = [];
   ids.forEach((id, i) => {
     const g = race.track.gridSlot(i);
@@ -402,14 +408,14 @@ function standings(race) {
 }
 
 // ---------------------------------------------------------------- AI driving
-// The drivatar brain lives in shared/ai.js so offline (in-browser) races use
+// The rival brain lives in shared/ai.js so offline (in-browser) races use
 // the exact same field.
 const AI_DT = 1 / 30;
 setInterval(() => {
   for (const race of races.values()) {
     if (race.phase !== 'race') continue;
     const allCars = [...race.ai.map(a => ({ id: a.id, x: a.car.x, z: a.car.z }))];
-    // Leading human's progress feeds the drivatars' rubber-banding.
+    // Leading human's progress feeds the rivals' rubber-banding.
     let humanProgress = null;
     for (const pid of race.members) {
       const p = players.get(pid);
@@ -612,7 +618,7 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('\n  HORIZON RUSH — LAN racing server');
+  console.log('\n  NOXRUSH — LAN racing server');
   console.log(`  Local:   http://localhost:${PORT}`);
   for (const ip of lanIPs()) console.log(`  Friend:  http://${ip}:${PORT}`);
   console.log(`  Maps: ${TRACKS.map(t => t.name).join(', ')}`);

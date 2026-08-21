@@ -10,9 +10,14 @@
 // the shapes unrecognisable — it just stops the asset from asserting a brand.
 // See CREDITS.md and RELEASE_CHECKLIST.md.
 //
-// Only node names change. Mesh/material/accessor data is untouched, and the part
-// names the game matches on (Paint, Trim, Body, Window, Front, Rear, Tires,
-// Rims) are generic and deliberately left alone.
+// Only names change. Mesh/accessor data is untouched, and the part names the
+// game matches on (Paint, Trim, Body, Window, Front, Rear, Tires, Rims) are
+// generic and deliberately left alone.
+//
+// What is deliberately NOT stripped: `asset.extras`, which carries the CC-BY
+// author/licence/title/source. That block names the donor car, but it is the
+// attribution the licence obliges us to keep and CREDITS.md already states it
+// publicly. Removing it would trade a trade-dress worry for a licence breach.
 import fs from 'node:fs';
 
 // Fictional single-word names, in the spirit of the player car's "Kestrel GT".
@@ -26,7 +31,23 @@ const RENAMES = {
   'Ford': 'Halcyon',        // hot hatch
   'Ferrari': 'Vulpine',     // low hypercar
   'Land Rover': 'Warden',   // luxury SUV
+  'volvo': 'kestrel',       // player car body + the four wheel nodes
 };
+
+// Material names, renamed separately: the player car's are the only ones that
+// carry a marque, and they are matched by nothing in the game — the manifest
+// sets "lampMaterials", which replaces the /light|lamp/ regex outright, so the
+// misleading "lightsbase…" prefix on what are actually body panels is already
+// inert. Renaming it off the brand also retires that footgun.
+// NOTE: keep `models/manifest.json` in step with any node rename — it pins the
+// four wheel nodes by name, and a mismatch silently stops the wheels spinning.
+const MATERIAL_RENAMES = {
+  'lightsbasekspolestarngr': 'bodypanel',
+};
+
+// Marques to scan for after renaming, so the script cannot report "clean" while
+// a brand survives somewhere it does not rewrite.
+const BRAND_WORDS = ['volvo', 'polestar', 'ferrari', 'mercedes', 'zenvo', 'artura', 'sterrato', 'land rover'];
 
 const path = process.argv[2];
 const checkOnly = process.argv.includes('--check');
@@ -54,41 +75,48 @@ const jsonChunk = chunks.find(c => c.type === 0x4e4f534a);
 if (!jsonChunk) { console.error('no JSON chunk'); process.exit(1); }
 const json = JSON.parse(jsonChunk.data.toString('utf8'));
 
-// Longest brand first, so "Land Rover" is not half-matched by a shorter key.
-const keys = Object.keys(RENAMES).sort((a, b) => b.length - a.length);
-const hits = [];
-for (const node of json.nodes || []) {
-  const name = node.name;
-  if (!name) continue;
-  const key = keys.find(k => name === k || name.startsWith(k + '.') || name.startsWith(k + '_'));
-  if (!key) continue;
-  const renamed = RENAMES[key] + name.slice(key.length);   // keep any ".001" suffix
-  hits.push({ from: name, to: renamed });
-  if (!checkOnly) node.name = renamed;
+// Rename one name-bearing table against one map. Longest key first, so
+// "Land Rover" is not half-matched by a shorter key.
+function renameTable(items, map) {
+  const keys = Object.keys(map).sort((a, b) => b.length - a.length);
+  const hits = [];
+  for (const item of items || []) {
+    const name = item.name;
+    if (!name) continue;
+    const key = keys.find(k => name === k || name.startsWith(k + '.') || name.startsWith(k + '_'));
+    if (!key) continue;
+    const renamed = map[key] + name.slice(key.length);   // keep any ".001" suffix
+    hits.push({ from: name, to: renamed });
+    if (!checkOnly) item.name = renamed;
+  }
+  return hits;
 }
 
-// Anything else in the file still naming a brand? Node names are the only place
-// this pack carries them, but check the other name-bearing tables so a rename
-// never reports "clean" while a brand hides in a mesh or material.
+const nodeHits = renameTable(json.nodes, RENAMES);
+const matHits = renameTable(json.materials, MATERIAL_RENAMES);
+const hits = [...nodeHits, ...matHits];
+
+// Anything still naming a brand anywhere? Scan every name-bearing table against
+// the full marque list, so a rename never reports "clean" while a brand hides
+// in a table this script does not rewrite. asset.extras is exempt on purpose —
+// see the header note: that is the CC-BY attribution and it has to stay.
 const leftovers = [];
-for (const table of ['meshes', 'materials', 'images', 'textures', 'animations', 'skins']) {
+const hasBrand = (s) => BRAND_WORDS.some(w => (s || '').toLowerCase().includes(w));
+for (const table of ['nodes', 'meshes', 'materials', 'images', 'textures', 'animations', 'skins']) {
   for (const item of json[table] || []) {
-    if (item.name && keys.some(k => item.name.toLowerCase().includes(k.toLowerCase()))) {
-      leftovers.push(`${table}: ${item.name}`);
-    }
+    if (hasBrand(item.name)) leftovers.push(`${table}: ${item.name}`);
   }
 }
-if (json.asset?.generator && keys.some(k => json.asset.generator.toLowerCase().includes(k.toLowerCase()))) {
-  leftovers.push(`asset.generator: ${json.asset.generator}`);
-}
+if (hasBrand(json.asset?.generator)) leftovers.push(`asset.generator: ${json.asset.generator}`);
 
-for (const h of hits) console.log(`  ${h.from.padEnd(16)} -> ${h.to}`);
-console.log(`${hits.length} node name(s) ${checkOnly ? 'would be' : ''} renamed`);
+for (const h of nodeHits) console.log(`  node      ${h.from.padEnd(28)} -> ${h.to}`);
+for (const h of matHits) console.log(`  material  ${h.from.padEnd(28)} -> ${h.to}`);
+console.log(`${nodeHits.length} node + ${matHits.length} material name(s) ${checkOnly ? 'would be' : ''} renamed`);
 if (leftovers.length) {
-  console.log('\nBrand strings remain OUTSIDE node names — handle these too:');
+  console.log(`\nBrand strings ${checkOnly ? 'present' : 'REMAIN'} outside the rename maps — handle these too:`);
   for (const l of leftovers) console.log('  ' + l);
 } else {
-  console.log('No brand strings in mesh/material/image/texture names.');
+  console.log('No brand strings left in any name table.');
 }
 
 if (checkOnly || !hits.length) process.exit(0);
